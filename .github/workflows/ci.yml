@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  backend-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+        cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
+    - name: Install dependencies
+      run: cd backend && npm ci
+    - name: Run tests
+      run: cd backend && npm test
+
+  sdk-ts-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+        cache: 'npm'
+        cache-dependency-path: sdks/typescript/package-lock.json
+    - name: Install dependencies
+      run: cd sdks/typescript && npm ci
+    - name: Run tests
+      run: cd sdks/typescript && npm test
+
+  sdk-python-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-node@v4 # Using setup-node for consistency, but should ideally be setup-python
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests pytest
+        pip install -e sdks/python
+    - name: Run tests
+      run: pytest sdks/python/tests/
