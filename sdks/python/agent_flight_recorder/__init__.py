@@ -8,7 +8,14 @@ from typing import Optional, Dict, Any, List, Callable
 
 
 class FlightRecorder:
+    """
+    The core recorder class for LLM agents.
+    """
     def __init__(self, api_url: str = None):
+        """
+        Create a new FlightRecorder instance.
+        :param api_url: The URL of the backend API.
+        """
         self.api_url = api_url or os.getenv("FLIGHT_RECORDER_API_URL", "http://localhost:3001/api")
         self.current_run_id = None
         self._api_key = os.getenv("AFR_API_KEY")
@@ -21,6 +28,10 @@ class FlightRecorder:
 
     def start_run(self, name: str = None, model: str = None, temperature: float = None,
                   metadata: Dict = None, tags: List[str] = None) -> Optional[str]:
+        """
+        Start a new recording run.
+        :returns: The run ID, or None if the start failed.
+        """
         payload = {
             "name": name,
             "model": model,
@@ -44,6 +55,10 @@ class FlightRecorder:
 
     def record_step(self, type: str, payload: Dict, duration: int = None,
                     timestamp: str = None) -> Optional[str]:
+        """
+        Record a single step in the current run.
+        :returns: The step ID, or None if the recording failed.
+        """
         if not self.current_run_id:
             return None
 
@@ -67,6 +82,9 @@ class FlightRecorder:
             return None
 
     def finish_run(self, status: str = "success", metadata: Dict = None):
+        """
+        Finish the current recording run.
+        """
         if not self.current_run_id:
             return
 
@@ -89,6 +107,9 @@ class FlightRecorder:
     @contextmanager
     def run(self, name: str = None, model: str = None, temperature: float = None,
             metadata: Dict = None, tags: List[str] = None):
+        """
+        Context manager to record a block of code as a single run.
+        """
         self.start_run(name, model, temperature, metadata, tags)
         try:
             yield self
@@ -100,6 +121,9 @@ class FlightRecorder:
 
     def record_llm_call(self, prompt: Any, response: Any, model: str = None,
                         duration: int = None) -> Optional[str]:
+        """
+        Record a specific LLM_CALL step.
+        """
         payload = {
             "prompt": prompt,
             "response": response,
@@ -109,6 +133,9 @@ class FlightRecorder:
 
     def record_tool_call(self, name: str, args: Dict, result: Any,
                          duration: int = None) -> Optional[str]:
+        """
+        Record a specific TOOL_CALL step.
+        """
         payload = {
             "name": name,
             "args": args,
