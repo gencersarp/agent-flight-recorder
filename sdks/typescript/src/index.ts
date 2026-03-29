@@ -34,11 +34,19 @@ export interface ToolCallOptions {
   duration?: number;
 }
 
+/**
+ * The core recorder class for LLM agents.
+ */
 export class FlightRecorder {
   private apiUrl: string;
   private currentRunId: string | null = null;
   private apiKey: string | null = null;
 
+  /**
+   * Create a new FlightRecorder instance.
+   * @param apiUrl - The URL of the backend API (e.g. "http://localhost:3001/api").
+   * @param apiKey - Optional API key for authentication.
+   */
   constructor(apiUrl?: string, apiKey?: string) {
     this.apiUrl =
       apiUrl ||
@@ -50,6 +58,9 @@ export class FlightRecorder {
       null;
   }
 
+  /**
+   * Get the current run ID, if any.
+   */
   get runId(): string | null {
     return this.currentRunId;
   }
@@ -62,6 +73,11 @@ export class FlightRecorder {
     return h;
   }
 
+  /**
+   * Start a new recording run.
+   * @param options - Configuration for the run (name, model, tags, etc.)
+   * @returns The run ID, or null if the start failed.
+   */
   async startRun(options: StartRunOptions = {}): Promise<string | null> {
     try {
       const res = await fetch(`${this.apiUrl}/runs/start`, {
@@ -79,6 +95,11 @@ export class FlightRecorder {
     }
   }
 
+  /**
+   * Record a single step in the current run.
+   * @param options - Step data (type, payload, duration, etc.)
+   * @returns The step ID, or null if the recording failed.
+   */
   async recordStep(options: StepOptions): Promise<string | null> {
     if (!this.currentRunId) return null;
     try {
@@ -99,6 +120,10 @@ export class FlightRecorder {
     }
   }
 
+  /**
+   * Finish the current recording run.
+   * @param options - Run finish data (status, final metadata, etc.)
+   */
   async finishRun(
     options: FinishRunOptions = { status: "success" }
   ): Promise<void> {
@@ -119,6 +144,11 @@ export class FlightRecorder {
     }
   }
 
+  /**
+   * Record a specific LLM_CALL step.
+   * @param options - LLM call details (prompt, response, model, duration).
+   * @returns The step ID, or null if failed.
+   */
   async recordLlmCall(options: LlmCallOptions): Promise<string | null> {
     return this.recordStep({
       type: "LLM_CALL",
@@ -131,6 +161,11 @@ export class FlightRecorder {
     });
   }
 
+  /**
+   * Record a specific TOOL_CALL step.
+   * @param options - Tool call details (name, args, result, duration).
+   * @returns The step ID, or null if failed.
+   */
   async recordToolCall(options: ToolCallOptions): Promise<string | null> {
     return this.recordStep({
       type: "TOOL_CALL",
