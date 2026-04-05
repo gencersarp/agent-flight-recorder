@@ -12,7 +12,7 @@ db.pragma('synchronous = NORMAL');
 db.pragma('foreign_keys = ON');
 
 // Schema versioning and migration system
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS schema_version (
@@ -60,6 +60,17 @@ function applyMigrations() {
         CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at);
 
         INSERT INTO schema_version (version) VALUES (1);
+      `);
+    });
+    migrate();
+  }
+
+  if (version < 2) {
+    const migrate = db.transaction(() => {
+      db.exec(`
+        ALTER TABLE steps ADD COLUMN token_count INTEGER;
+        CREATE INDEX IF NOT EXISTS idx_runs_tags ON runs(tags);
+        INSERT INTO schema_version (version) VALUES (2);
       `);
     });
     migrate();
