@@ -233,6 +233,90 @@ def wrap_openai(client, recorder: FlightRecorder = None):
 
 
 # ---------------------------------------------------------------------------
+# Anthropic wrapper
+# ---------------------------------------------------------------------------
+def wrap_anthropic(client, recorder: "FlightRecorder" = None):
+    """
+    Monkey-patch an Anthropic client so all messages.create calls are
+    automatically recorded as LLM_CALL steps.
+
+    Usage:
+        import anthropic
+        from agent_flight_recorder import FlightRecorder, wrap_anthropic
+
+        client = anthropic.Anthropic()
+        recorder = FlightRecorder()
+        wrap_anthropic(client, recorder)
+
+        with recorder.run(name="My run", model="claude-3-5-sonnet-20241022"):
+            msg = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1024,
+                messages=[{"role": "user", "content": "Hello"}],
+            )
+            # ^ automatically recorded as LLM_CALL step
+    """
+    if recorder is None:
+        recorder = _default_recorder
+
+    if not hasattr(client, "messages") or not hasattr(client.messages, "create"):
+        print("Warning: wrap_anthropic expects an Anthropic client with messages.create")
+        return client
+
+    original_create = client.messages.create
+
+    @functools.wraps(original_create)
+    def patched_create(*args, **kwargs):
+        start_time = time.time()
+        error_msg = None
+        result = None
+        try:
+            result = original_create(*args, **kwargs)
+            return result
+        except Exception as e:
+            error_msg = str(e)
+            raise
+        finally:
+            duration_ms = int((time.time() - start_time) * 1000)
+            messages = kwargs.get("messages", args[0] if args else None)
+            model = kwargs.get("model", None)
+
+            response_data = None
+            if result is not None:
+                try:
+                    content_text = None
+                    if hasattr(result, "content") and result.content:
+                        block = result.content[0]
+                        content_text = getattr(block, "text", None)
+                    usage = None
+                    if hasattr(result, "usage") and result.usage:
+                        usage = {
+                            "input_tokens": getattr(result.usage, "input_tokens", None),
+                            "output_tokens": getattr(result.usage, "output_tokens", None),
+                        }
+                    response_data = {
+                        "content": content_text,
+                        "stop_reason": getattr(result, "stop_reason", None),
+                        "usage": usage,
+                    }
+                except Exception:
+                    response_data = str(result)
+
+            if error_msg is not None:
+                response_data = {"error": error_msg}
+
+            recorder.record_llm_call(
+                prompt=messages,
+                response=response_data,
+                model=model,
+                duration=duration_ms,
+            )
+
+    client.messages.create = patched_create
+    return client
+
+
+# ---------------------------------------------------------------------------
 # @record decorator (item 15)
 # ---------------------------------------------------------------------------
 def record(name: str = None, recorder: FlightRecorder = None, step_type: str = "TOOL_CALL"):
