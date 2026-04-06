@@ -143,6 +143,20 @@ class FlightRecorder:
         }
         return self.record_step("TOOL_CALL", payload, duration)
 
+    def record_system_event(self, event: str, details: Any = None,
+                            duration: int = None) -> Optional[str]:
+        """
+        Record a SYSTEM_EVENT step (e.g. context-window flush, tool-use
+        limit reached, agent restart, guardrail trigger).
+
+        :param event:   Short label for the event type (e.g. "context_flush").
+        :param details: Optional structured metadata about the event.
+        """
+        payload: Dict[str, Any] = {"event": event}
+        if details is not None:
+            payload["details"] = details
+        return self.record_step("SYSTEM_EVENT", payload, duration)
+
 
 # ---------------------------------------------------------------------------
 # OpenAI wrapper (item 15)
