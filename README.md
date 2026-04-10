@@ -50,6 +50,13 @@ npm run dev
 
 This starts both the backend (port 3001) and the UI (port 3000) concurrently.
 
+### Run tests
+
+```bash
+# Run all tests (backend, TS SDK, Python SDK)
+npm test
+```
+
 Or run them individually:
 
 ```bash
@@ -237,6 +244,33 @@ with recorder.run(name="OpenAI Agent", model="gpt-4"):
         model="gpt-4",
         messages=[{"role": "user", "content": "Hello"}]
     )
+
+### Anthropic auto-instrumentation
+
+```python
+import anthropic
+from agent_flight_recorder import FlightRecorder, wrap_anthropic
+
+client = anthropic.Anthropic()
+recorder = FlightRecorder()
+wrap_anthropic(client, recorder)
+
+with recorder.run(name="Claude Agent", model="claude-3"):
+    msg = client.messages.create(
+        model="claude-3",
+        messages=[{"role": "user", "content": "Hello"}],
+    )
+```
+
+### Replay previous runs
+
+```python
+def on_llm_call(step):
+    print(f"Re-executing LLM call: {step['payload']['prompt']}")
+    # You can choose to re-execute or return the original result
+    return step['payload']['response']
+
+recorder.replay("original-run-id", on_llm_call=on_llm_call)
 ```
 
 ### @record decorator for tools
@@ -309,6 +343,39 @@ await recorder.withRun({ name: "TS Agent", model: "gpt-4" }, async () => {
     model: "gpt-4",
     messages: [{ role: "user", content: "Hello" }],
   });
+});
+
+### Anthropic auto-instrumentation
+
+```typescript
+import Anthropic from "@anthropic-ai/sdk";
+import { FlightRecorder, wrapAnthropic } from "agent-flight-recorder";
+
+const client = new Anthropic();
+const recorder = new FlightRecorder();
+wrapAnthropic(client, recorder);
+
+await recorder.withRun({ name: "Claude Agent", model: "claude-3" }, async () => {
+  await client.messages.create({
+    model: "claude-3",
+    messages: [{ role: "user", content: "Hello" }],
+  });
+});
+```
+
+### Replay previous runs
+
+```typescript
+await recorder.replay("original-run-id", {
+  onLlmCall: async (step) => {
+    console.log(`Re-executing LLM call: ${step.payload.prompt}`);
+    // You can choice to re-execute or return the original result
+    return step.payload.response;
+  },
+  onToolCall: async (step) => {
+    console.log(`Re-executing tool call: ${step.payload.name}`);
+    return step.payload.result;
+  }
 });
 ```
 

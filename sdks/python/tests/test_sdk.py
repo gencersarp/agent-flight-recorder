@@ -288,3 +288,47 @@ class TestGracefulDegradation:
 
         # Should not raise
         recorder.finish_run()
+
+
+class TestReplay:
+    """Test FlightRecorder.replay method."""
+
+    @patch("agent_flight_recorder.requests.post")
+    @patch("agent_flight_recorder.requests.get")
+    def test_replay_triggers_and_executes_handlers(self, mock_get, mock_post):
+        original_run_id = "orig-123"
+        new_run_id = "replay-456"
+        steps = [
+            {"type": "LLM_CALL", "payload": {"prompt": "step 1"}},
+            {"type": "TOOL_CALL", "payload": {"name": "step 2"}},
+        ]
+
+        # 1. Trigger replay response
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            raise_for_status=MagicMock(),
+            json=MagicMock(return_value={"run_id": new_run_id}),
+        )
+        # 2. Fetch steps response
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            raise_for_status=MagicMock(),
+            json=MagicMock(return_value=steps),
+        )
+
+        recorder = FlightRecorder("http://localhost:3001/api")
+        on_llm_call = MagicMock()
+        on_tool_call = MagicMock()
+
+        result_run_id = recorder.replay(
+            original_run_id,
+            on_llm_call=on_llm_call,
+            on_tool_call=on_tool_call,
+        )
+
+        assert result_run_id == new_run_id
+        assert on_llm_call.called
+        assert on_llm_call.call_args[0][0] == steps[0]
+        assert on_tool_call.called
+        assert on_tool_call.call_args[0][0] == steps[1]
+        assert recorder.current_run_id is None  # finish_run clears it

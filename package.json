@@ -8,6 +8,7 @@
     "dev:backend": "cd backend && npm run dev",
     "dev:ui": "cd ui && npm run dev",
     "build": "cd backend && npm run build && cd ../ui && npm run build",
+    "test": "cd backend && npm test && cd ../sdks/typescript && npm test && cd ../python && python3 -m pytest tests/test_sdk.py",
     "install:all": "cd backend && npm install && cd ../ui && npm install && cd ../sdks/typescript && npm install"
   }
 }

@@ -366,3 +366,70 @@ describe('wrapFetch', () => {
     globalThis.fetch = originalFetch;
   });
 });
+
+describe('wrapAnthropic', () => {
+  it('patches messages.create and records calls', async () => {
+    mockFetch.mockReturnValue(mockFetchResponse({ step_id: 'anth-step' }));
+
+    const recorder = new FlightRecorder('http://localhost:3001/api');
+    (recorder as any).currentRunId = 'run-anth';
+
+    const mockResponse = {
+      content: [{ text: 'Hello from Claude', type: 'text' }],
+      role: 'assistant',
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 10, output_tokens: 5 },
+    };
+
+    const mockClient = {
+      messages: {
+        create: vi.fn().mockResolvedValue(mockResponse),
+      },
+    };
+
+    const { wrapAnthropic } = await import('../index');
+    wrapAnthropic(mockClient, recorder);
+
+    const result = await mockClient.messages.create({
+      model: 'claude-3',
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+
+    expect(result).toEqual(mockResponse);
+    expect(mockFetch).toHaveBeenCalled();
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.type).toBe('LLM_CALL');
+    expect(body.payload.model).toBe('claude-3');
+    expect(body.payload.response.content).toBe('Hello from Claude');
+  });
+});
+
+describe('FlightRecorder.replay', () => {
+  it('triggers replay and executes handlers for each step', async () => {
+    const originalRunId = 'orig-123';
+    const newRunId = 'replay-456';
+    const steps = [
+      { type: 'LLM_CALL', payload: { prompt: 'step 1' } },
+      { type: 'TOOL_CALL', payload: { name: 'step 2' } },
+    ];
+
+    mockFetch
+      .mockReturnValueOnce(mockFetchResponse({ run_id: newRunId })) // replay trigger
+      .mockReturnValueOnce(mockFetchResponse(steps)) // fetch steps
+      .mockReturnValue(mockFetchResponse({})); // finishRun
+
+    const recorder = new FlightRecorder('http://localhost:3001/api');
+    const onLlmCall = vi.fn().mockResolvedValue({});
+    const onToolCall = vi.fn().mockResolvedValue({});
+
+    const resultRunId = await recorder.replay(originalRunId, {
+      onLlmCall,
+      onToolCall,
+    });
+
+    expect(resultRunId).toBe(newRunId);
+    expect(onLlmCall).toHaveBeenCalledWith(steps[0]);
+    expect(onToolCall).toHaveBeenCalledWith(steps[1]);
+    expect(recorder.runId).toBeNull(); // finishRun clears it
+  });
+});

@@ -157,6 +157,53 @@ class FlightRecorder:
             payload["details"] = details
         return self.record_step("SYSTEM_EVENT", payload, duration)
 
+    def replay(self, run_id: str, on_llm_call: Callable = None,
+               on_tool_call: Callable = None) -> Optional[str]:
+        """
+        Replay a previous run. Fetches the steps from the original run and
+        allows re-executing them via provided handlers.
+
+        :param run_id:      The original run ID to replay.
+        :param on_llm_call: Callback for LLM_CALL steps.
+        :param on_tool_call: Callback for TOOL_CALL steps.
+        :returns:           The new run ID, or None if failed.
+        """
+        try:
+            # 1. Trigger replay on backend
+            response = requests.post(
+                f"{self.api_url}/runs/{run_id}/replay",
+                headers=self._headers(),
+                timeout=10,
+            )
+            response.raise_for_status()
+            replay_data = response.json()
+            new_run_id = replay_data["run_id"]
+
+            # 2. Fetch original steps
+            steps_res = requests.get(
+                f"{self.api_url}/runs/{run_id}/steps",
+                headers=self._headers(),
+                timeout=10,
+            )
+            steps_res.raise_for_status()
+            original_steps = steps_res.json()
+
+            # 3. Set current run ID so recordings go to the new run
+            self.current_run_id = new_run_id
+
+            # 4. Iterate and replay
+            for step in original_steps:
+                if step["type"] == "LLM_CALL" and on_llm_call:
+                    on_llm_call(step)
+                elif step["type"] == "TOOL_CALL" and on_tool_call:
+                    on_tool_call(step)
+
+            self.finish_run(status="success")
+            return new_run_id
+        except Exception as e:
+            print(f"Warning: Replay failed: {e}")
+            return None
+
 
 # ---------------------------------------------------------------------------
 # OpenAI wrapper (item 15)

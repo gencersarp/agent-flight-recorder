@@ -232,6 +232,56 @@ export class FlightRecorder {
       }
     };
   }
+
+  /**
+   * Replay a previous run. Fetches the steps from the original run and
+   * allows re-executing them via provided handlers.
+   *
+   * @param runId - The original run ID to replay.
+   * @param handlers - Callbacks for each step type. Return the result of the re-execution.
+   */
+  async replay(
+    runId: string,
+    handlers: {
+      onLlmCall?: (step: any) => Promise<any>;
+      onToolCall?: (step: any) => Promise<any>;
+    }
+  ): Promise<string | null> {
+    try {
+      // 1. Trigger replay on backend (creates a new run and copies steps)
+      const res = await fetch(`${this.apiUrl}/runs/${runId}/replay`, {
+        method: "POST",
+        headers: this.headers(),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const replayData = await res.json();
+      const newRunId = replayData.run_id;
+
+      // 2. Fetch original steps to know what to replay
+      const stepsRes = await fetch(`${this.apiUrl}/runs/${runId}/steps`, {
+        headers: this.headers(),
+      });
+      const originalSteps = await stepsRes.json();
+
+      // 3. Set the current run ID to the new one so recordings go there
+      this.currentRunId = newRunId;
+
+      // 4. Iterate and replay
+      for (const step of originalSteps) {
+        if (step.type === "LLM_CALL" && handlers.onLlmCall) {
+          await handlers.onLlmCall(step);
+        } else if (step.type === "TOOL_CALL" && handlers.onToolCall) {
+          await handlers.onToolCall(step);
+        }
+      }
+
+      await this.finishRun({ status: "success" });
+      return newRunId;
+    } catch (e) {
+      console.warn(`FlightRecorder: Replay failed: ${e}`);
+      return null;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +435,73 @@ export function wrapOpenAI(client: any, recorder: FlightRecorder): void {
                   prompt_tokens: result.usage.prompt_tokens,
                   completion_tokens: result.usage.completion_tokens,
                   total_tokens: result.usage.total_tokens,
+                }
+              : undefined,
+          };
+        } catch {
+          responseData = result;
+        }
+      }
+
+      if (errorMsg) {
+        responseData = { error: errorMsg };
+      }
+
+      await recorder.recordStep({
+        type: "LLM_CALL",
+        payload: {
+          prompt: params.messages,
+          response: responseData,
+          model: params.model,
+        },
+        duration,
+      });
+    }
+  };
+}
+
+/**
+ * Monkey-patches an Anthropic client's messages.create to automatically
+ * record calls as LLM_CALL steps.
+ *
+ * Works with the official `@anthropic-ai/sdk` npm package.
+ */
+export function wrapAnthropic(client: any, recorder: FlightRecorder): void {
+  if (!client?.messages?.create) {
+    console.warn("wrapAnthropic: client does not have messages.create");
+    return;
+  }
+
+  const originalCreate = client.messages.create.bind(client.messages);
+
+  client.messages.create = async function (
+    params: any,
+    options?: any
+  ): Promise<any> {
+    const start = Date.now();
+    let result: any = null;
+    let errorMsg: string | null = null;
+
+    try {
+      result = await originalCreate(params, options);
+      return result;
+    } catch (e) {
+      errorMsg = String(e);
+      throw e;
+    } finally {
+      const duration = Date.now() - start;
+
+      let responseData: any;
+      if (result) {
+        try {
+          responseData = {
+            content: result.content?.[0]?.text,
+            role: result.role,
+            stop_reason: result.stop_reason,
+            usage: result.usage
+              ? {
+                  input_tokens: result.usage.input_tokens,
+                  output_tokens: result.usage.output_tokens,
                 }
               : undefined,
           };

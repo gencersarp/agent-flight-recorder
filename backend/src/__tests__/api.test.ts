@@ -32,6 +32,7 @@ describe('Run Lifecycle', () => {
         tags: ['test', 'unit'],
         metadata: { env: 'test' },
       });
+    if (res.status !== 200) console.log(JSON.stringify(res.body, null, 2));
     expect(res.status).toBe(200);
     expect(res.body.run_id).toBeDefined();
     runId = res.body.run_id;

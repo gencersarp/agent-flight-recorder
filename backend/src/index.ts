@@ -45,7 +45,7 @@ const StartRunSchema = z.object({
   name: z.string().optional(),
   model: z.string().optional(),
   temperature: z.number().optional(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
   tags: z.array(z.string()).optional(),
 });
 
@@ -54,12 +54,12 @@ const StepSchema = z.object({
   type: z.enum(['LLM_CALL', 'TOOL_CALL', 'TOOL_RESULT', 'SYSTEM_EVENT']),
   timestamp: z.string().optional(),
   duration: z.number().optional(),
-  payload: z.record(z.any()),
+  payload: z.record(z.string(), z.any()),
 });
 
 const FinishRunSchema = z.object({
   status: z.string(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -148,8 +148,7 @@ app.post('/api/runs/start', (req: Request, res: Response) => {
 // POST /api/runs/:id/step (items 1, 2)
 // ---------------------------------------------------------------------------
 app.post('/api/runs/:id/step', (req: Request, res: Response) => {
-  const { id: run_id } = req.params;
-
+  const run_id = req.params.id as string;
   const result = StepSchema.safeParse(req.body);
   if (!result.success) {
     res.status(400).json({ error: result.error });
@@ -191,8 +190,7 @@ app.post('/api/runs/:id/step', (req: Request, res: Response) => {
 // POST /api/runs/:id/finish (items 1, 2)
 // ---------------------------------------------------------------------------
 app.post('/api/runs/:id/finish', (req: Request, res: Response) => {
-  const { id } = req.params;
-
+  const id = req.params.id as string;
   const result = FinishRunSchema.safeParse(req.body);
   if (!result.success) {
     res.status(400).json({ error: result.error });
@@ -393,7 +391,7 @@ app.get('/api/runs/compare', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 app.get('/api/runs/:id', (req: Request, res: Response) => {
   try {
-    const run = findRunOrNull(req.params.id);
+    const run = findRunOrNull((req.params.id as string));
     if (!run) {
       res.status(404).json({ error: 'Run not found' });
       return;
@@ -409,13 +407,13 @@ app.get('/api/runs/:id', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 app.get('/api/runs/:id/steps', (req: Request, res: Response) => {
   try {
-    const run = findRunOrNull(req.params.id);
+    const run = findRunOrNull((req.params.id as string));
     if (!run) {
       res.status(404).json({ error: 'Run not found' });
       return;
     }
 
-    const steps = db.prepare('SELECT * FROM steps WHERE run_id = ? ORDER BY timestamp ASC').all(req.params.id);
+    const steps = db.prepare('SELECT * FROM steps WHERE run_id = ? ORDER BY timestamp ASC').all((req.params.id as string));
     res.json(steps.map(parseStep));
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch steps', message: err.message });
@@ -427,7 +425,7 @@ app.get('/api/runs/:id/steps', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 app.post('/api/runs/:id/replay', (req: Request, res: Response) => {
   try {
-    const originalId = req.params.id;
+    const originalId = (req.params.id as string);
     const originalRun = findRunOrNull(originalId);
     if (!originalRun) {
       res.status(404).json({ error: 'Run not found' });
