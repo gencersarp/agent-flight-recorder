@@ -246,7 +246,7 @@ describe('Replay', () => {
     const res = await request(app).get(`/api/runs/${replayRunId}`);
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('replaying');
-    expect(res.body.name).toContain('[Replay]');
+    expect(res.body.name).toMatch(/\[Replay(:Stub|:Live)?\]/);
     expect(res.body.metadata.original_run_id).toBe(originalRunId);
   });
 

@@ -248,8 +248,8 @@ export class FlightRecorder {
     }
   ): Promise<string | null> {
     try {
-      // 1. Trigger replay on backend (creates a new run and copies steps)
-      const res = await fetch(`${this.apiUrl}/runs/${runId}/replay`, {
+      // 1. Trigger replay on backend (creates a new run shell)
+      const res = await fetch(`${this.apiUrl}/runs/${runId}/replay?mode=live`, {
         method: "POST",
         headers: this.headers(),
       });
@@ -281,6 +281,61 @@ export class FlightRecorder {
       console.warn(`FlightRecorder: Replay failed: ${e}`);
       return null;
     }
+  }
+
+  /**
+   * Creates a high-level replay adapter that simplifies swapping LLM and tool
+   * implementations during a replay.
+   */
+  createReplayAdapter(options: {
+    llm?: (prompt: any, model?: string) => Promise<any>;
+    tools?: Record<string, (args: any) => Promise<any>>;
+    useOriginalResults?: boolean;
+  }) {
+    return {
+      onLlmCall: async (step: any) => {
+        if (options.llm) {
+          const response = await options.llm(
+            step.payload.prompt,
+            step.payload.model
+          );
+          await this.recordLlmCall({
+            prompt: step.payload.prompt,
+            response,
+            model: step.payload.model,
+          });
+          return response;
+        }
+        if (options.useOriginalResults) {
+          await this.recordLlmCall({
+            prompt: step.payload.prompt,
+            response: step.payload.response,
+            model: step.payload.model,
+          });
+          return step.payload.response;
+        }
+      },
+      onToolCall: async (step: any) => {
+        const toolFn = options.tools?.[step.payload.name];
+        if (toolFn) {
+          const result = await toolFn(step.payload.args);
+          await this.recordToolCall({
+            name: step.payload.name,
+            args: step.payload.args,
+            result,
+          });
+          return result;
+        }
+        if (options.useOriginalResults) {
+          await this.recordToolCall({
+            name: step.payload.name,
+            args: step.payload.args,
+            result: step.payload.result,
+          });
+          return step.payload.result;
+        }
+      },
+    };
   }
 }
 

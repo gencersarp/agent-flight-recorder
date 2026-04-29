@@ -1,63 +1,63 @@
 # Progress Tracker
 
-## SDK & Replay Update (2026-04-10)
+## Enhanced Replay & SDK Parity (2026-04-30)
 
 ### All Changes
 
-1. **Backend Bug Fixes** (`backend/src/index.ts`):
-   - Fixed TypeScript compilation errors by explicitly typing `z.record(z.string(), z.any())`.
-   - Cast `req.params.id` to `string` to resolve `string | string[]` type mismatches.
-   - These fixes resolved the 500 errors previously seen in backend tests.
+1. **TypeScript SDK Examples** (`examples/ts_sdk_features.ts`):
+   - Created a comprehensive example demonstrating auto-instrumentation (OpenAI/Anthropic mocks) and the new `replay` functionality.
+   - Showcases both low-level `replay()` and the high-level `createReplayAdapter()`.
 
-2. **TypeScript SDK - Anthropic Support** (`sdks/typescript/src/index.ts`):
-   - Added `wrapAnthropic(client, recorder)` to patch `@anthropic-ai/sdk` messages.create.
-   - Provides feature parity with the Python SDK.
+2. **Replay Mode: Live vs Stub** (`backend/src/index.ts`, `ui/src/app/runs/[id]/page.tsx`, `ui/src/lib/api.ts`):
+   - Enhanced Backend `/replay` endpoint to support `mode=live` (creates a run shell) and `mode=stub` (copies all steps).
+   - Added `AFR_REPLAY_URL` support in the backend to trigger external webhooks for live re-execution.
+   - Updated UI with a mode selector (radio buttons) on the Run Detail page.
+   - Updated UI to display alerts for live replay status/messages.
 
-3. **Replay Functionality** (`sdks/python/agent_flight_recorder/__init__.py`, `sdks/typescript/src/index.ts`):
-   - Implemented `replay(runId, handlers)` method in both SDKs.
-   - Automates the process of: triggering a replay run on the backend, fetching original steps, and executing user-provided callbacks for each step.
-   - Allows users to programmaticly re-run agents with stubs or live LLMs while recording results for comparison.
+3. **SDK Replay Logic Fixes** (`sdks/typescript/src/index.ts`, `sdks/python/agent_flight_recorder/__init__.py`):
+   - Fixed a bug where SDK `replay()` would cause duplicate steps by triggering a data-copy replay on the backend. It now uses `mode=live`.
+   - Ensured both SDKs correctly set the `currentRunId` to the new replay run ID so re-executed steps are recorded in the correct place.
 
-4. **Root Test Script** (`package.json`):
-   - Added `"test": "..."` script to the root `package.json`.
-   - Runs `npm test` for backend, `npm test` for TS SDK, and `pytest` for Python SDK in sequence.
+4. **Python SDK Parity** (`sdks/python/agent_flight_recorder/__init__.py`):
+   - Implemented `create_replay_adapter` in Python to match the TypeScript SDK.
+   - Added module-level convenience exports for `replay` and `create_replay_adapter`.
+   - Updated `replay` to accept a dictionary of handlers (adapter).
 
-5. **Documentation Update** (`README.md`):
-   - Added documentation and examples for `wrapAnthropic` and `replay` in both languages.
-   - Added instructions for running all tests via the root script.
-
-6. **Tests Added**:
-   - `sdks/typescript/src/__tests__/sdk.test.ts`: Added tests for `wrapAnthropic` and `FlightRecorder.replay`.
-   - `sdks/python/tests/test_sdk.py`: Added `TestReplay` class to verify the Python replay implementation.
+5. **Test Maintenance**:
+   - Updated `backend/src/__tests__/api.test.ts` to match the new naming convention for replayed runs (`[Replay:Stub] ...`).
+   - Verified all tests pass across backend and both SDKs.
 
 ### Files Modified
-- `backend/src/index.ts` — Type fixes for Zod and Express params.
-- `sdks/typescript/src/index.ts` — Added `wrapAnthropic` and `replay`.
-- `sdks/typescript/src/__tests__/sdk.test.ts` — New tests for Anthropic and Replay.
-- `sdks/python/agent_flight_recorder/__init__.py` — Added `replay`.
-- `sdks/python/tests/test_sdk.py` — New tests for Replay.
-- `package.json` — Added root `test` script.
-- `README.md` — Updated with new features and test instructions.
-- `PROGRESS.md` — This file.
+- `backend/src/index.ts` — Added `mode` support to `/replay` and webhook triggering.
+- `backend/src/__tests__/api.test.ts` — Updated test assertions.
+- `ui/src/app/runs/[id]/page.tsx` — Added Replay Mode selector UI.
+- `ui/src/lib/api.ts` — Updated `replayRun` signature.
+- `sdks/typescript/src/index.ts` — Updated `replay` to use `mode=live`.
+- `sdks/python/agent_flight_recorder/__init__.py` — Added `create_replay_adapter` and module exports.
+- `examples/ts_sdk_features.ts` — New comprehensive example.
 
-## Previous Session (2026-03-27)
+## Previous Sessions
 
-### Completed
-1. Production-ready update with error handling, validation, pagination, filtering.
-2. API Key Auth, Health Check, Replay/Compare endpoints.
-3. Myers diff algorithm in UI.
-4. Docker support and comprehensive README.
+### SDK & Replay Update (2026-04-10)
+- Fixed backend Zod types.
+- Added Anthropic support to TS SDK.
+- Initial `replay()` implementation in both SDKs.
+
+### Initial MVP (2026-03-27)
+- Core backend with SQLite.
+- Basic UI with timeline and diff.
+- Initial Python/TS SDKs.
 
 ## Architecture Decisions
-- **SDK Replay Pattern**: Uses a handler-based callback system (`onLlmCall`, `onToolCall`). This decouples the re-execution logic from the SDK, allowing users to either return original results (stub mode) or re-invoke real APIs.
-- **Strict Typing**: Explicitly typing Zod records and casting request parameters to avoid environment-specific TypeScript inference issues.
-- **Unified Testing**: Root `npm test` ensures all components of the monorepo are functional before commit.
+- **Live Replay Webhook**: The backend can now trigger an external service to start a replay. This allows the UI to initiate a "Live" re-run of an agent if the agent's environment provides a triggerable endpoint.
+- **Run Shell Pattern**: `mode=live` replay creates a run with metadata linked to the original but no steps. This is the preferred way for SDK-based replays to avoid data duplication.
+- **Adapter Pattern**: `ReplayAdapter` (or `create_replay_adapter`) is the recommended way for users to swap LLM/Tool implementations during replay, as it handles the recording of the new results automatically.
 
 ## Next Session TODO
-- Add a sample TypeScript agent in `examples/` to demonstrate the TS SDK.
-- Enhance the UI's replay functionality to allow choosing between "Data Copy" (current) and "Live Re-execution" (triggering an external endpoint or SDK).
-- Implement a more advanced "Replay Adapter" in the SDKs that can automatically swap LLM/Tool implementations.
+- Enhance the UI's diff view to better handle "Live Re-execution" runs where the number of steps might differ from the original.
+- Implement a "Search steps" feature in the Run Detail page to filter the timeline by text or step type.
+- Add support for recording "State Snapshots" as mentioned in the spec (currently only LLM/Tool/System events are explicitly handled).
 
 ## Known Issues
-- UI still lacks automated tests (e.g., Playwright or Vitest for components).
-- Python SDK tests require `requests` and `pytest` to be installed in the environment (documented in README).
+- `AFR_REPLAY_URL` is a simple fire-and-forget webhook; it doesn't provide real-time feedback to the UI about the progress of the live run beyond the initial trigger.
+- Python SDK auto-instrumentation for Anthropic/OpenAI depends on specific package versions (documented in README).

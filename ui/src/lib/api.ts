@@ -107,8 +107,8 @@ export async function fetchSteps(runId: string): Promise<Step[]> {
   return res.json();
 }
 
-export async function replayRun(id: string): Promise<{ run_id: string; original_run_id: string; steps_copied: number }> {
-  const res = await fetch(`${API_BASE}/runs/${id}/replay`, {
+export async function replayRun(id: string, mode: "stub" | "live" = "stub"): Promise<{ run_id: string; original_run_id: string; steps_copied?: number; mode: string; message?: string }> {
+  const res = await fetch(`${API_BASE}/runs/${id}/replay?mode=${mode}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });

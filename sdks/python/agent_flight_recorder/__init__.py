@@ -158,7 +158,7 @@ class FlightRecorder:
         return self.record_step("SYSTEM_EVENT", payload, duration)
 
     def replay(self, run_id: str, on_llm_call: Callable = None,
-               on_tool_call: Callable = None) -> Optional[str]:
+               on_tool_call: Callable = None, handlers: Dict[str, Callable] = None) -> Optional[str]:
         """
         Replay a previous run. Fetches the steps from the original run and
         allows re-executing them via provided handlers.
@@ -166,12 +166,17 @@ class FlightRecorder:
         :param run_id:      The original run ID to replay.
         :param on_llm_call: Callback for LLM_CALL steps.
         :param on_tool_call: Callback for TOOL_CALL steps.
+        :param handlers:    A dictionary containing on_llm_call and/or on_tool_call.
         :returns:           The new run ID, or None if failed.
         """
+        # Merge handlers
+        h_llm = on_llm_call or (handlers.get("on_llm_call") if handlers else None)
+        h_tool = on_tool_call or (handlers.get("on_tool_call") if handlers else None)
+
         try:
-            # 1. Trigger replay on backend
+            # 1. Trigger replay on backend (mode=live creates a shell run)
             response = requests.post(
-                f"{self.api_url}/runs/{run_id}/replay",
+                f"{self.api_url}/runs/{run_id}/replay?mode=live",
                 headers=self._headers(),
                 timeout=10,
             )
@@ -193,16 +198,56 @@ class FlightRecorder:
 
             # 4. Iterate and replay
             for step in original_steps:
-                if step["type"] == "LLM_CALL" and on_llm_call:
-                    on_llm_call(step)
-                elif step["type"] == "TOOL_CALL" and on_tool_call:
-                    on_tool_call(step)
+                if step["type"] == "LLM_CALL" and h_llm:
+                    h_llm(step)
+                elif step["type"] == "TOOL_CALL" and h_tool:
+                    h_tool(step)
 
             self.finish_run(status="success")
             return new_run_id
         except Exception as e:
             print(f"Warning: Replay failed: {e}")
             return None
+
+    def create_replay_adapter(self, llm: Callable = None, tools: Dict[str, Callable] = None,
+                               use_original_results: bool = False):
+        """
+        Creates a high-level replay adapter that simplifies swapping LLM and tool
+        implementations during a replay.
+        """
+        def on_llm_call(step):
+            payload = step.get("payload", {})
+            prompt = payload.get("prompt")
+            model = payload.get("model")
+            original_response = payload.get("response")
+
+            if llm:
+                response = llm(prompt, model)
+                self.record_llm_call(prompt=prompt, response=response, model=model)
+                return response
+            elif use_original_results:
+                self.record_llm_call(prompt=prompt, response=original_response, model=model)
+                return original_response
+
+        def on_tool_call(step):
+            payload = step.get("payload", {})
+            name = payload.get("name")
+            args = payload.get("args")
+            original_result = payload.get("result")
+
+            tool_fn = tools.get(name) if tools else None
+            if tool_fn:
+                result = tool_fn(args)
+                self.record_tool_call(name=name, args=args, result=result)
+                return result
+            elif use_original_results:
+                self.record_tool_call(name=name, args=args, result=original_result)
+                return original_result
+
+        return {
+            "on_llm_call": on_llm_call,
+            "on_tool_call": on_tool_call,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -464,3 +509,11 @@ def record_llm_call(*args, **kwargs):
 
 def record_tool_call(*args, **kwargs):
     return _default_recorder.record_tool_call(*args, **kwargs)
+
+
+def replay(*args, **kwargs):
+    return _default_recorder.replay(*args, **kwargs)
+
+
+def create_replay_adapter(*args, **kwargs):
+    return _default_recorder.create_replay_adapter(*args, **kwargs)

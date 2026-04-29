@@ -89,15 +89,24 @@ docker-compose down
 
 Data is persisted in a Docker volume (`afr-data`).
 
-### Run the example agent
+### Run the example agents
 
+#### Python Example
 ```bash
 cd examples
 pip install requests
-python simple_agent.py
+python3 simple_agent.py
 ```
 
-Refresh the UI to see the recorded run.
+#### TypeScript Example
+```bash
+# Ensure SDK is built
+cd sdks/typescript && npm install && npm run build
+cd ../../examples
+npx ts-node simple_agent.ts
+```
+
+Refresh the UI to see the recorded runs.
 
 ## API Key Configuration
 

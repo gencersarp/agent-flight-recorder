@@ -168,6 +168,7 @@ export default function RunDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [replaying, setReplaying] = useState(false);
+  const [replayMode, setReplayMode] = useState<"stub" | "live">("stub");
 
   useEffect(() => {
     Promise.all([fetchRun(id), fetchSteps(id)])
@@ -182,7 +183,10 @@ export default function RunDetailPage() {
   async function handleReplay() {
     setReplaying(true);
     try {
-      const result = await replayRun(id);
+      const result = await replayRun(id, replayMode);
+      if (result.message && replayMode === "live") {
+        alert(result.message);
+      }
       router.push(`/runs/${result.run_id}`);
     } catch (e: any) {
       alert(`Replay failed: ${e.message}`);
@@ -268,28 +272,52 @@ export default function RunDetailPage() {
         </div>
 
         {/* Action buttons (item 12) */}
-        <div className="flex gap-3 mt-4 pt-4 border-t border-gray-800">
-          <button
-            onClick={handleReplay}
-            disabled={replaying}
-            className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition"
-          >
-            {replaying ? "Replaying..." : "Replay this run"}
-          </button>
-          {hasOriginal && (
+        <div className="mt-4 pt-4 border-t border-gray-800 space-y-4">
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-gray-400">Replay Mode:</span>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                checked={replayMode === "stub"}
+                onChange={() => setReplayMode("stub")}
+                className="accent-indigo-500"
+              />
+              <span className={replayMode === "stub" ? "text-indigo-400" : "text-gray-500"}>Data Copy (Stub)</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                checked={replayMode === "live"}
+                onChange={() => setReplayMode("live")}
+                className="accent-indigo-500"
+              />
+              <span className={replayMode === "live" ? "text-indigo-400" : "text-gray-500"}>Live Re-execution</span>
+            </label>
+          </div>
+
+          <div className="flex gap-3">
             <button
-              onClick={handleCompareWithOriginal}
-              className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition"
+              onClick={handleReplay}
+              disabled={replaying}
+              className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition"
             >
-              Compare with original
+              {replaying ? "Replaying..." : "Replay this run"}
             </button>
-          )}
-          <a
-            href={`/diff?left=${id}`}
-            className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition inline-flex items-center"
-          >
-            Compare with another run
-          </a>
+            {hasOriginal && (
+              <button
+                onClick={handleCompareWithOriginal}
+                className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition"
+              >
+                Compare with original
+              </button>
+            )}
+            <a
+              href={`/diff?left=${id}`}
+              className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition inline-flex items-center"
+            >
+              Compare with another run
+            </a>
+          </div>
         </div>
       </div>
 

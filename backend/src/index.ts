@@ -423,16 +423,17 @@ app.get('/api/runs/:id/steps', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/runs/:id/replay (item 7)
 // ---------------------------------------------------------------------------
-app.post('/api/runs/:id/replay', (req: Request, res: Response) => {
+app.post('/api/runs/:id/replay', async (req: Request, res: Response) => {
   try {
     const originalId = (req.params.id as string);
+    const mode = req.query.mode === 'live' ? 'live' : 'stub';
+    
     const originalRun = findRunOrNull(originalId);
     if (!originalRun) {
       res.status(404).json({ error: 'Run not found' });
       return;
     }
 
-    const originalSteps = db.prepare('SELECT * FROM steps WHERE run_id = ? ORDER BY timestamp ASC').all(originalId);
     const newRunId = uuidv4();
     const now = new Date().toISOString();
 
@@ -441,15 +442,55 @@ app.post('/api/runs/:id/replay', (req: Request, res: Response) => {
       ...existingMetadata,
       original_run_id: originalId,
       replayed_at: now,
+      replay_mode: mode,
     };
 
-    const replayTransaction = db.transaction(() => {
+    if (mode === 'stub') {
+      const originalSteps = db.prepare('SELECT * FROM steps WHERE run_id = ? ORDER BY timestamp ASC').all(originalId);
+      
+      const replayTransaction = db.transaction(() => {
+        db.prepare(`
+          INSERT INTO runs (id, name, created_at, updated_at, status, model, temperature, metadata, tags)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          newRunId,
+          `[Replay:Stub] ${originalRun.name}`,
+          now,
+          now,
+          'replaying',
+          originalRun.model,
+          originalRun.temperature,
+          JSON.stringify(replayMetadata),
+          originalRun.tags
+        );
+
+        const insertStep = db.prepare(`
+          INSERT INTO steps (id, run_id, type, timestamp, duration, payload)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const step of originalSteps as any[]) {
+          insertStep.run(
+            uuidv4(),
+            newRunId,
+            step.type,
+            new Date().toISOString(),
+            step.duration,
+            step.payload
+          );
+        }
+      });
+
+      replayTransaction();
+      res.json({ run_id: newRunId, original_run_id: originalId, steps_copied: (originalSteps as any[]).length, mode: 'stub' });
+    } else {
+      // mode === 'live'
       db.prepare(`
         INSERT INTO runs (id, name, created_at, updated_at, status, model, temperature, metadata, tags)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         newRunId,
-        `[Replay] ${originalRun.name}`,
+        `[Replay:Live] ${originalRun.name}`,
         now,
         now,
         'replaying',
@@ -459,26 +500,38 @@ app.post('/api/runs/:id/replay', (req: Request, res: Response) => {
         originalRun.tags
       );
 
-      const insertStep = db.prepare(`
-        INSERT INTO steps (id, run_id, type, timestamp, duration, payload)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
+      const REPLAY_URL = process.env.AFR_REPLAY_URL;
+      let webhookTriggered = false;
+      let webhookError = null;
 
-      for (const step of originalSteps as any[]) {
-        insertStep.run(
-          uuidv4(),
-          newRunId,
-          step.type,
-          new Date().toISOString(),
-          step.duration,
-          step.payload
-        );
+      if (REPLAY_URL) {
+        try {
+          // Trigger external re-execution
+          // We don't wait for it to finish, just fire and forget or check if it accepted it
+          const response = await fetch(REPLAY_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              original_run_id: originalId,
+              new_run_id: newRunId,
+            }),
+          });
+          webhookTriggered = response.ok;
+          if (!response.ok) webhookError = await response.text();
+        } catch (e: any) {
+          webhookError = e.message;
+        }
       }
-    });
 
-    replayTransaction();
-
-    res.json({ run_id: newRunId, original_run_id: originalId, steps_copied: (originalSteps as any[]).length });
+      res.json({ 
+        run_id: newRunId, 
+        original_run_id: originalId, 
+        mode: 'live',
+        webhook_triggered: webhookTriggered,
+        webhook_error: webhookError,
+        message: REPLAY_URL ? 'Live replay triggered' : 'Live run created. Please start your agent replay using the SDK and the new run ID.'
+      });
+    }
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to replay run', message: err.message });
   }
