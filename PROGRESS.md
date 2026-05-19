@@ -1,63 +1,45 @@
 # Progress Tracker
 
-## Enhanced Replay & SDK Parity (2026-04-30)
+## Step Branching & Custom Diff Handlers (2026-05-19)
 
 ### All Changes
 
-1. **TypeScript SDK Examples** (`examples/ts_sdk_features.ts`):
-   - Created a comprehensive example demonstrating auto-instrumentation (OpenAI/Anthropic mocks) and the new `replay` functionality.
-   - Showcases both low-level `replay()` and the high-level `createReplayAdapter()`.
+1. **Step Branching** (`backend/src/index.ts`, `ui/src/app/runs/[id]/page.tsx`, `ui/src/lib/api.ts`):
+   - Enhanced `/api/runs/:id/replay` to accept `until_step_id`, allowing runs to be truncated at any point.
+   - Added a "Branch" button to each step in the timeline. Clicking it triggers a live replay up to that step.
+   - Branched runs are marked in metadata with `branched_from_step_id`.
 
-2. **Replay Mode: Live vs Stub** (`backend/src/index.ts`, `ui/src/app/runs/[id]/page.tsx`, `ui/src/lib/api.ts`):
-   - Enhanced Backend `/replay` endpoint to support `mode=live` (creates a run shell) and `mode=stub` (copies all steps).
-   - Added `AFR_REPLAY_URL` support in the backend to trigger external webhooks for live re-execution.
-   - Updated UI with a mode selector (radio buttons) on the Run Detail page.
-   - Updated UI to display alerts for live replay status/messages.
+2. **Custom Diff Handlers** (`ui/src/lib/diff-handlers.tsx`, `ui/src/app/diff/page.tsx`):
+   - Created a registry for specialized diff rendering logic.
+   - **Image Diff**: Automatically detects image payloads (URL or base64) and shows them side-by-side.
+   - **Noise Filter**: A JSON handler that excludes common volatile keys (e.g., `timestamp`, `id`, `created_at`) to reduce diff noise.
+   - Refactored `StepDiff` to dynamically pick the best handler or fallback to text diff.
 
-3. **SDK Replay Logic Fixes** (`sdks/typescript/src/index.ts`, `sdks/python/agent_flight_recorder/__init__.py`):
-   - Fixed a bug where SDK `replay()` would cause duplicate steps by triggering a data-copy replay on the backend. It now uses `mode=live`.
-   - Ensured both SDKs correctly set the `currentRunId` to the new replay run ID so re-executed steps are recorded in the correct place.
-
-4. **Python SDK Parity** (`sdks/python/agent_flight_recorder/__init__.py`):
-   - Implemented `create_replay_adapter` in Python to match the TypeScript SDK.
-   - Added module-level convenience exports for `replay` and `create_replay_adapter`.
-   - Updated `replay` to accept a dictionary of handlers (adapter).
-
-5. **Test Maintenance**:
-   - Updated `backend/src/__tests__/api.test.ts` to match the new naming convention for replayed runs (`[Replay:Stub] ...`).
-   - Verified all tests pass across backend and both SDKs.
+3. **Split-View Diff** (`ui/src/app/diff/page.tsx`):
+   - Added a "Side-by-side" view mode in the diff page.
+   - Implemented an alignment algorithm for split views based on the Myers diff results.
+   - Added a UI toggle to switch between "Unified" and "Side-by-side" views.
 
 ### Files Modified
-- `backend/src/index.ts` — Added `mode` support to `/replay` and webhook triggering.
-- `backend/src/__tests__/api.test.ts` — Updated test assertions.
-- `ui/src/app/runs/[id]/page.tsx` — Added Replay Mode selector UI.
-- `ui/src/lib/api.ts` — Updated `replayRun` signature.
-- `sdks/typescript/src/index.ts` — Updated `replay` to use `mode=live`.
-- `sdks/python/agent_flight_recorder/__init__.py` — Added `create_replay_adapter` and module exports.
-- `examples/ts_sdk_features.ts` — New comprehensive example.
+- `backend/src/index.ts` — Enhanced replay endpoint for branching.
+- `ui/src/lib/api.ts` — Updated `replayRun` API and added `STATE_SNAPSHOT` to `Step` type.
+- `ui/src/app/runs/[id]/page.tsx` — Added "Branch" button and logic.
+- `ui/src/app/diff/page.tsx` — Added split view, handlers, and Suspense wrapper.
+- `ui/src/lib/diff-handlers.tsx` — **NEW** file for custom diff logic.
 
 ## Previous Sessions
-
-### SDK & Replay Update (2026-04-10)
-- Fixed backend Zod types.
-- Added Anthropic support to TS SDK.
-- Initial `replay()` implementation in both SDKs.
-
-### Initial MVP (2026-03-27)
-- Core backend with SQLite.
-- Basic UI with timeline and diff.
-- Initial Python/TS SDKs.
+... (rest of previous sessions)
 
 ## Architecture Decisions
-- **Live Replay Webhook**: The backend can now trigger an external service to start a replay. This allows the UI to initiate a "Live" re-run of an agent if the agent's environment provides a triggerable endpoint.
-- **Run Shell Pattern**: `mode=live` replay creates a run with metadata linked to the original but no steps. This is the preferred way for SDK-based replays to avoid data duplication.
-- **Adapter Pattern**: `ReplayAdapter` (or `create_replay_adapter`) is the recommended way for users to swap LLM/Tool implementations during replay, as it handles the recording of the new results automatically.
+- **LCS Alignment for Diffs**: Using LCS instead of index-matching for steps ensures that "Live" re-runs are accurately compared.
+- **Handler Registry**: Decoupling diff logic from the main `DiffPage` allows for easy extension without bloating the main component.
+- **Partial Copy for Branching**: Branched runs copy all preceding steps from the original run to preserve context for the re-execution.
 
 ## Next Session TODO
-- Enhance the UI's diff view to better handle "Live Re-execution" runs where the number of steps might differ from the original.
-- Implement a "Search steps" feature in the Run Detail page to filter the timeline by text or step type.
-- Add support for recording "State Snapshots" as mentioned in the spec (currently only LLM/Tool/System events are explicitly handled).
+- **SDK "Branch Bootstrapping"**: Update SDKs to allow an agent to automatically fetch and restore its internal state from existing steps when started as a branched run.
+- **Image Diff Enhancement**: Implement actual pixel-diffing (visual overlay) instead of just side-by-side display.
+- **Websocket Feedback**: Add real-time step streaming in the UI for running/replaying agents.
 
 ## Known Issues
-- `AFR_REPLAY_URL` is a simple fire-and-forget webhook; it doesn't provide real-time feedback to the UI about the progress of the live run beyond the initial trigger.
-- Python SDK auto-instrumentation for Anthropic/OpenAI depends on specific package versions (documented in README).
+- `Noise Filter` currently uses a simple side-by-side JSON display instead of a full line-by-line diff for the filtered object.
+- Side-by-side view might be cramped on very small screens; need better responsive handling.

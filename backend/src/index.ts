@@ -51,7 +51,7 @@ const StartRunSchema = z.object({
 
 const StepSchema = z.object({
   id: z.string().optional(),
-  type: z.enum(['LLM_CALL', 'TOOL_CALL', 'TOOL_RESULT', 'SYSTEM_EVENT']),
+  type: z.enum(['LLM_CALL', 'TOOL_CALL', 'TOOL_RESULT', 'SYSTEM_EVENT', 'STATE_SNAPSHOT']),
   timestamp: z.string().optional(),
   duration: z.number().optional(),
   payload: z.record(z.string(), z.any()),
@@ -229,6 +229,93 @@ app.post('/api/runs/:id/finish', (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// Diffing Algorithm (LCS-based for steps)
+// ---------------------------------------------------------------------------
+function diffSteps(left: any[], right: any[]) {
+  const n = left.length;
+  const m = right.length;
+
+  // dp[i][j] = length of LCS of left[0..i-1] and right[0..j-1]
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      const l = left[i - 1];
+      const r = right[j - 1];
+      // Compare by type and stringified payload
+      if (l.type === r.type && l.payload === r.payload) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  const stepDiffs: any[] = [];
+  let i = n;
+  let j = m;
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0) {
+      const l = left[i - 1];
+      const r = right[j - 1];
+      if (l.type === r.type && l.payload === r.payload) {
+        stepDiffs.unshift({
+          status: 'same',
+          left: parseStep(l),
+          right: parseStep(r),
+        });
+        i--;
+        j--;
+        continue;
+      }
+    }
+
+    if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      stepDiffs.unshift({
+        status: 'added',
+        left: null,
+        right: parseStep(right[j - 1]),
+      });
+      j--;
+    } else {
+      stepDiffs.unshift({
+        status: 'removed',
+        left: parseStep(left[i - 1]),
+        right: null,
+      });
+      i--;
+    }
+  }
+
+  // Final pass: detect 'changed' by pairing removed and added steps if they are at the same position
+  // or if they have the same type but different payload.
+  // Actually, standard LCS already gives us a good enough sequence of removed/added.
+  // We can try to merge adjacent 'removed' and 'added' into 'changed' if they have the same type.
+  const merged: any[] = [];
+  for (let k = 0; k < stepDiffs.length; k++) {
+    const current = stepDiffs[k];
+    const next = stepDiffs[k + 1];
+
+    if (current.status === 'removed' && next && next.status === 'added') {
+      // Potentially a 'changed' step
+      if (current.left.type === next.right.type) {
+        merged.push({
+          status: 'changed',
+          left: current.left,
+          right: next.right,
+        });
+        k++; // skip next
+        continue;
+      }
+    }
+    merged.push(current);
+  }
+
+  return merged;
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/runs (items 3, 4 — pagination + filtering)
 // ---------------------------------------------------------------------------
 app.get('/api/runs', (req: Request, res: Response) => {
@@ -328,31 +415,7 @@ app.get('/api/runs/compare', (req: Request, res: Response) => {
     leftSteps.forEach((s: any) => { leftTypeCounts[s.type] = (leftTypeCounts[s.type] || 0) + 1; });
     rightSteps.forEach((s: any) => { rightTypeCounts[s.type] = (rightTypeCounts[s.type] || 0) + 1; });
 
-    // Compute step-by-step diff status
-    const maxLen = Math.max(leftSteps.length, rightSteps.length);
-    const stepDiffs: any[] = [];
-    for (let i = 0; i < maxLen; i++) {
-      const l = leftSteps[i] as any | undefined;
-      const r = rightSteps[i] as any | undefined;
-
-      let status: 'same' | 'changed' | 'added' | 'removed';
-      if (l && r) {
-        const lPayload = l.payload || '';
-        const rPayload = r.payload || '';
-        status = (l.type === r.type && lPayload === rPayload) ? 'same' : 'changed';
-      } else if (l && !r) {
-        status = 'removed';
-      } else {
-        status = 'added';
-      }
-
-      stepDiffs.push({
-        index: i,
-        status,
-        left: l ? parseStep(l) : null,
-        right: r ? parseStep(r) : null,
-      });
-    }
+    const stepDiffs = diffSteps(leftSteps, rightSteps);
 
     res.json({
       left: {
@@ -426,12 +489,25 @@ app.get('/api/runs/:id/steps', (req: Request, res: Response) => {
 app.post('/api/runs/:id/replay', async (req: Request, res: Response) => {
   try {
     const originalId = (req.params.id as string);
-    const mode = req.query.mode === 'live' ? 'live' : 'stub';
+    const mode = (req.query.mode || req.body.mode) === 'live' ? 'live' : 'stub';
+    const untilStepId = (req.query.until_step_id || req.body.until_step_id) as string | undefined;
     
     const originalRun = findRunOrNull(originalId);
     if (!originalRun) {
       res.status(404).json({ error: 'Run not found' });
       return;
+    }
+
+    const originalSteps = db.prepare('SELECT * FROM steps WHERE run_id = ? ORDER BY timestamp ASC').all(originalId) as any[];
+    
+    let stepsToCopy = originalSteps;
+    if (untilStepId) {
+      const stepIndex = originalSteps.findIndex(s => s.id === untilStepId);
+      if (stepIndex === -1) {
+        res.status(404).json({ error: `Step ${untilStepId} not found in run ${originalId}` });
+        return;
+      }
+      stepsToCopy = originalSteps.slice(0, stepIndex + 1);
     }
 
     const newRunId = uuidv4();
@@ -443,18 +519,17 @@ app.post('/api/runs/:id/replay', async (req: Request, res: Response) => {
       original_run_id: originalId,
       replayed_at: now,
       replay_mode: mode,
+      branched_from_step_id: untilStepId || null,
     };
 
     if (mode === 'stub') {
-      const originalSteps = db.prepare('SELECT * FROM steps WHERE run_id = ? ORDER BY timestamp ASC').all(originalId);
-      
       const replayTransaction = db.transaction(() => {
         db.prepare(`
           INSERT INTO runs (id, name, created_at, updated_at, status, model, temperature, metadata, tags)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           newRunId,
-          `[Replay:Stub] ${originalRun.name}`,
+          `[Replay:Stub] ${originalRun.name}${untilStepId ? ' (Branched)' : ''}`,
           now,
           now,
           'replaying',
@@ -465,24 +540,31 @@ app.post('/api/runs/:id/replay', async (req: Request, res: Response) => {
         );
 
         const insertStep = db.prepare(`
-          INSERT INTO steps (id, run_id, type, timestamp, duration, payload)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO steps (id, run_id, type, timestamp, duration, payload, token_count)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
 
-        for (const step of originalSteps as any[]) {
+        for (const step of stepsToCopy) {
           insertStep.run(
             uuidv4(),
             newRunId,
             step.type,
             new Date().toISOString(),
             step.duration,
-            step.payload
+            step.payload,
+            step.token_count
           );
         }
       });
 
       replayTransaction();
-      res.json({ run_id: newRunId, original_run_id: originalId, steps_copied: (originalSteps as any[]).length, mode: 'stub' });
+      res.json({ 
+        run_id: newRunId, 
+        original_run_id: originalId, 
+        steps_copied: stepsToCopy.length, 
+        mode: 'stub',
+        branched: !!untilStepId
+      });
     } else {
       // mode === 'live'
       db.prepare(`
@@ -490,7 +572,7 @@ app.post('/api/runs/:id/replay', async (req: Request, res: Response) => {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         newRunId,
-        `[Replay:Live] ${originalRun.name}`,
+        `[Replay:Live] ${originalRun.name}${untilStepId ? ' (Branched)' : ''}`,
         now,
         now,
         'replaying',
@@ -500,20 +582,41 @@ app.post('/api/runs/:id/replay', async (req: Request, res: Response) => {
         originalRun.tags
       );
 
+      // Even in live mode, we might want to copy the steps so the new run has the history
+      if (untilStepId) {
+        const insertStep = db.prepare(`
+          INSERT INTO steps (id, run_id, type, timestamp, duration, payload, token_count)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        const copyTransaction = db.transaction(() => {
+          for (const step of stepsToCopy) {
+            insertStep.run(
+              uuidv4(),
+              newRunId,
+              step.type,
+              new Date().toISOString(),
+              step.duration,
+              step.payload,
+              step.token_count
+            );
+          }
+        });
+        copyTransaction();
+      }
+
       const REPLAY_URL = process.env.AFR_REPLAY_URL;
       let webhookTriggered = false;
       let webhookError = null;
 
       if (REPLAY_URL) {
         try {
-          // Trigger external re-execution
-          // We don't wait for it to finish, just fire and forget or check if it accepted it
           const response = await fetch(REPLAY_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               original_run_id: originalId,
               new_run_id: newRunId,
+              until_step_id: untilStepId || null,
             }),
           });
           webhookTriggered = response.ok;
@@ -527,12 +630,15 @@ app.post('/api/runs/:id/replay', async (req: Request, res: Response) => {
         run_id: newRunId, 
         original_run_id: originalId, 
         mode: 'live',
+        branched: !!untilStepId,
+        steps_copied: untilStepId ? stepsToCopy.length : 0,
         webhook_triggered: webhookTriggered,
         webhook_error: webhookError,
         message: REPLAY_URL ? 'Live replay triggered' : 'Live run created. Please start your agent replay using the SDK and the new run ID.'
       });
     }
   } catch (err: any) {
+    console.error('Replay error:', err);
     res.status(500).json({ error: 'Failed to replay run', message: err.message });
   }
 });

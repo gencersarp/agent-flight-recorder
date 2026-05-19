@@ -15,7 +15,7 @@ export interface Run {
 export interface Step {
   id: string;
   run_id: string;
-  type: "LLM_CALL" | "TOOL_CALL" | "TOOL_RESULT" | "SYSTEM_EVENT";
+  type: "LLM_CALL" | "TOOL_CALL" | "TOOL_RESULT" | "SYSTEM_EVENT" | "STATE_SNAPSHOT";
   timestamp: string;
   duration: number | null;
   payload: Record<string, any> | null;
@@ -107,8 +107,12 @@ export async function fetchSteps(runId: string): Promise<Step[]> {
   return res.json();
 }
 
-export async function replayRun(id: string, mode: "stub" | "live" = "stub"): Promise<{ run_id: string; original_run_id: string; steps_copied?: number; mode: string; message?: string }> {
-  const res = await fetch(`${API_BASE}/runs/${id}/replay?mode=${mode}`, {
+export async function replayRun(id: string, mode: "stub" | "live" = "stub", untilStepId?: string): Promise<{ run_id: string; original_run_id: string; steps_copied?: number; mode: string; message?: string }> {
+  const params = new URLSearchParams();
+  params.set("mode", mode);
+  if (untilStepId) params.set("until_step_id", untilStepId);
+
+  const res = await fetch(`${API_BASE}/runs/${id}/replay?${params.toString()}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });

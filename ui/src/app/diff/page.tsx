@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Run,
@@ -9,6 +9,7 @@ import {
   fetchRuns,
   compareRuns,
 } from "@/lib/api";
+import { getHandler } from "@/lib/diff-handlers";
 
 // ---------------------------------------------------------------------------
 // Myers diff algorithm (proper LCS-based diff)
@@ -169,15 +170,65 @@ function DiffLine({ entry }: { entry: DiffEntry }) {
   );
 }
 
+function SideBySideDiff({ leftLines, rightLines }: { leftLines: string[]; rightLines: string[] }) {
+  const diffEntries = myersDiff(leftLines, rightLines);
+
+  // Align lines for side-by-side
+  const aligned: Array<{ left?: string; right?: string; op: DiffOp }> = [];
+  let i = 0;
+  while (i < diffEntries.length) {
+    const entry = diffEntries[i];
+    if (entry.op === "equal") {
+      aligned.push({ left: entry.left, right: entry.right, op: "equal" });
+      i++;
+    } else if (entry.op === "delete") {
+      // Look ahead for a matching insert
+      if (diffEntries[i + 1]?.op === "insert") {
+        aligned.push({ left: entry.left, right: diffEntries[i + 1].right, op: "insert" });
+        i += 2;
+      } else {
+        aligned.push({ left: entry.left, op: "delete" });
+        i++;
+      }
+    } else {
+      aligned.push({ right: entry.right, op: "insert" });
+      i++;
+    }
+  }
+
+  return (
+    <div className="flex divide-x divide-gray-800 overflow-x-auto bg-gray-950">
+      <div className="flex-1 min-w-[300px]">
+        {aligned.map((row, idx) => (
+          <div key={idx} className={`text-[10px] font-mono px-3 py-0.5 whitespace-pre border-b border-gray-800/30 h-5 ${row.op === 'delete' || (row.op === 'insert' && row.left) ? 'bg-red-500/10 text-red-300' : 'text-gray-400'}`}>
+            {row.left || ""}
+          </div>
+        ))}
+      </div>
+      <div className="flex-1 min-w-[300px]">
+        {aligned.map((row, idx) => (
+          <div key={idx} className={`text-[10px] font-mono px-3 py-0.5 whitespace-pre border-b border-gray-800/30 h-5 ${row.op === 'insert' ? 'bg-green-500/10 text-green-300' : 'text-gray-400'}`}>
+            {row.right || ""}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StepDiff({
   leftStep,
   rightStep,
   status,
+  viewMode,
 }: {
   leftStep?: Step | null;
   rightStep?: Step | null;
   status: string;
+  viewMode: "unified" | "split";
 }) {
+  const handler = getHandler(leftStep, rightStep);
+  
   const leftJson = leftStep?.payload
     ? JSON.stringify(leftStep.payload, null, 2)
     : "";
@@ -187,7 +238,6 @@ function StepDiff({
 
   const leftLines = leftJson ? leftJson.split("\n") : [];
   const rightLines = rightJson ? rightJson.split("\n") : [];
-  const diffEntries = myersDiff(leftLines, rightLines);
 
   const typeLabel = leftStep?.type || rightStep?.type || "UNKNOWN";
   const typeColors: Record<string, string> = {
@@ -195,6 +245,7 @@ function StepDiff({
     TOOL_CALL: "text-amber-400",
     TOOL_RESULT: "text-teal-400",
     SYSTEM_EVENT: "text-gray-400",
+    STATE_SNAPSHOT: "text-blue-400",
   };
 
   const statusColors: Record<string, string> = {
@@ -222,7 +273,7 @@ function StepDiff({
     <div
       className={`border ${statusColors[status] || "border-gray-800"} rounded-lg overflow-hidden mb-4`}
     >
-      <div className="bg-gray-900/50 px-4 py-2 flex items-center justify-between">
+      <div className="bg-gray-900/50 px-4 py-2 flex items-center justify-between border-b border-gray-800">
         <div className="flex items-center gap-3">
           <span
             className={`text-xs font-medium ${typeColors[typeLabel] || "text-gray-400"}`}
@@ -234,6 +285,11 @@ function StepDiff({
           >
             {statusLabels[status] || status}
           </span>
+          {handler && (
+            <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full">
+              Handled by: {handler.name}
+            </span>
+          )}
         </div>
         <div className="flex gap-4 text-xs text-gray-500">
           {leftStep?.duration != null && (
@@ -250,9 +306,15 @@ function StepDiff({
         </div>
       ) : (
         <div className="max-h-96 overflow-y-auto">
-          {diffEntries.map((entry, i) => (
-            <DiffLine key={i} entry={entry} />
-          ))}
+          {handler ? (
+            <handler.component leftStep={leftStep} rightStep={rightStep} status={status} />
+          ) : viewMode === "unified" ? (
+            myersDiff(leftLines, rightLines).map((entry, i) => (
+              <DiffLine key={i} entry={entry} />
+            ))
+          ) : (
+            <SideBySideDiff leftLines={leftLines} rightLines={rightLines} />
+          )}
         </div>
       )}
     </div>
@@ -265,7 +327,7 @@ function formatDuration(ms: number): string {
   return `${(ms / 60000).toFixed(1)}m`;
 }
 
-export default function DiffPage() {
+function DiffContent() {
   const searchParams = useSearchParams();
   const [runs, setRuns] = useState<Run[]>([]);
   const [leftId, setLeftId] = useState(searchParams.get("left") || "");
@@ -273,6 +335,7 @@ export default function DiffPage() {
   const [compareResult, setCompareResult] = useState<CompareResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [compared, setCompared] = useState(false);
+  const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
 
   useEffect(() => {
     fetchRuns().then(setRuns).catch(() => {});
@@ -280,10 +343,10 @@ export default function DiffPage() {
 
   // Auto-compare if both IDs are provided from URL params
   useEffect(() => {
-    if (leftId && rightId && !compared) {
+    if (leftId && rightId && !compared && runs.length > 0) {
       handleCompare();
     }
-  }, [runs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [runs, leftId, rightId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleCompare() {
     if (!leftId || !rightId) return;
@@ -304,8 +367,24 @@ export default function DiffPage() {
   const stepDiffs = compareResult?.step_diffs ?? [];
 
   return (
-    <div>
-      <h1 className="text-xl font-semibold mb-6">Compare Runs</h1>
+    <div className="pb-20">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-semibold">Compare Runs</h1>
+        <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-1">
+          <button
+            onClick={() => setViewMode("unified")}
+            className={`px-3 py-1 text-xs rounded ${viewMode === 'unified' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Unified
+          </button>
+          <button
+            onClick={() => setViewMode("split")}
+            className={`px-3 py-1 text-xs rounded ${viewMode === 'split' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Side-by-side
+          </button>
+        </div>
+      </div>
 
       <div className="flex gap-4 mb-6 items-end">
         <div className="flex-1">
@@ -341,7 +420,7 @@ export default function DiffPage() {
         <button
           onClick={handleCompare}
           disabled={!leftId || !rightId || loading}
-          className="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-sm text-gray-200 rounded-lg transition"
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-sm text-white rounded-lg transition"
         >
           {loading ? "Loading..." : "Compare"}
         </button>
@@ -430,11 +509,20 @@ export default function DiffPage() {
                 leftStep={d.left}
                 rightStep={d.right}
                 status={d.status}
+                viewMode={viewMode}
               />
             ))
           )}
         </div>
       )}
     </div>
+  );
+}
+
+export default function DiffPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-20 text-gray-500">Loading compare view...</div>}>
+      <DiffContent />
+    </Suspense>
   );
 }

@@ -44,6 +44,7 @@ function StepIcon({ type }: { type: string }) {
     TOOL_CALL: { bg: "bg-amber-500", label: "TL" },
     TOOL_RESULT: { bg: "bg-teal-500", label: "TR" },
     SYSTEM_EVENT: { bg: "bg-gray-500", label: "SY" },
+    STATE_SNAPSHOT: { bg: "bg-blue-500", label: "SS" },
   };
   const info = icons[type] || { bg: "bg-gray-500", label: "??" };
   return (
@@ -101,26 +102,36 @@ function ToolStepContent({ payload }: { payload: any }) {
   );
 }
 
-function StepCard({ step }: { step: Step }) {
+function StepCard({ step, onBranch }: { step: Step; onBranch: (stepId: string) => void }) {
   const typeLabels: Record<string, string> = {
     LLM_CALL: "LLM Call",
     TOOL_CALL: "Tool Call",
     TOOL_RESULT: "Tool Result",
     SYSTEM_EVENT: "System Event",
+    STATE_SNAPSHOT: "State Snapshot",
   };
 
   return (
-    <div className="flex gap-4">
+    <div className="flex gap-4 group">
       <div className="flex flex-col items-center">
         <StepIcon type={step.type} />
         <div className="w-px flex-1 bg-gray-800 mt-2" />
       </div>
       <div className="flex-1 pb-8">
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 transition-colors group-hover:border-gray-700">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium text-gray-200">
-              {typeLabels[step.type] || step.type}
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-gray-200">
+                {typeLabels[step.type] || step.type}
+              </span>
+              <button
+                onClick={() => onBranch(step.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity px-2 py-0.5 text-[10px] bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded hover:bg-indigo-600/40"
+                title="Start a new run branching from this step"
+              >
+                Branch
+              </button>
+            </div>
             <div className="flex items-center gap-3 text-xs text-gray-500">
               {step.duration != null && <span>{step.duration}ms</span>}
               <span>{new Date(step.timestamp).toLocaleTimeString()}</span>
@@ -133,7 +144,7 @@ function StepCard({ step }: { step: Step }) {
             (step.type === "TOOL_CALL" || step.type === "TOOL_RESULT") && (
               <ToolStepContent payload={step.payload} />
             )}
-          {step.payload && step.type === "SYSTEM_EVENT" && (
+          {step.payload && (step.type === "SYSTEM_EVENT" || step.type === "STATE_SNAPSHOT") && (
             <JsonViewer data={step.payload} />
           )}
         </div>
@@ -143,6 +154,7 @@ function StepCard({ step }: { step: Step }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
+// ... (rest of StatusBadge)
   const colors: Record<string, string> = {
     running: "bg-blue-500/20 text-blue-400 border-blue-500/30",
     replaying: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
@@ -169,6 +181,8 @@ export default function RunDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [replaying, setReplaying] = useState(false);
   const [replayMode, setReplayMode] = useState<"stub" | "live">("stub");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState<string>("ALL");
 
   useEffect(() => {
     Promise.all([fetchRun(id), fetchSteps(id)])
@@ -190,6 +204,23 @@ export default function RunDetailPage() {
       router.push(`/runs/${result.run_id}`);
     } catch (e: any) {
       alert(`Replay failed: ${e.message}`);
+    } finally {
+      setReplaying(false);
+    }
+  }
+
+  async function handleBranch(stepId: string) {
+    if (!confirm("Start a new live run branching from this step?")) return;
+    
+    setReplaying(true);
+    try {
+      const result = await replayRun(id, "live", stepId);
+      if (result.message) {
+        alert(result.message);
+      }
+      router.push(`/runs/${result.run_id}`);
+    } catch (e: any) {
+      alert(`Branching failed: ${e.message}`);
     } finally {
       setReplaying(false);
     }
@@ -219,6 +250,16 @@ export default function RunDetailPage() {
   }
 
   const hasOriginal = !!run.metadata?.original_run_id;
+
+  const filteredSteps = steps.filter((step) => {
+    const matchesType = filterType === "ALL" || step.type === filterType;
+    const matchesSearch =
+      searchQuery === "" ||
+      JSON.stringify(step.payload)
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+    return matchesType && matchesSearch;
+  });
 
   return (
     <div>
@@ -333,18 +374,41 @@ export default function RunDetailPage() {
         </div>
       )}
 
-      <h2 className="text-sm font-medium text-gray-400 mb-4">
-        Steps ({steps.length})
-      </h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <h2 className="text-sm font-medium text-gray-400">
+          Steps ({filteredSteps.length} / {steps.length})
+        </h2>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search steps..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-gray-700 w-full sm:w-48"
+          />
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-gray-700"
+          >
+            <option value="ALL">All Types</option>
+            <option value="LLM_CALL">LLM Calls</option>
+            <option value="TOOL_CALL">Tool Calls</option>
+            <option value="TOOL_RESULT">Tool Results</option>
+            <option value="SYSTEM_EVENT">System Events</option>
+            <option value="STATE_SNAPSHOT">State Snapshots</option>
+          </select>
+        </div>
+      </div>
 
-      {steps.length === 0 ? (
+      {filteredSteps.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
-          No steps recorded for this run.
+          {steps.length === 0 ? "No steps recorded." : "No steps match your search."}
         </div>
       ) : (
         <div>
-          {steps.map((step) => (
-            <StepCard key={step.id} step={step} />
+          {filteredSteps.map((step) => (
+            <StepCard key={step.id} step={step} onBranch={handleBranch} />
           ))}
         </div>
       )}

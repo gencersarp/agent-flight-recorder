@@ -157,6 +157,12 @@ class FlightRecorder:
             payload["details"] = details
         return self.record_step("SYSTEM_EVENT", payload, duration)
 
+    def record_state_snapshot(self, name: str, state: Dict[str, Any]) -> Optional[str]:
+        """
+        Record a STATE_SNAPSHOT step.
+        """
+        return self.record_step("STATE_SNAPSHOT", {"name": name, "state": state})
+
     def replay(self, run_id: str, on_llm_call: Callable = None,
                on_tool_call: Callable = None, handlers: Dict[str, Callable] = None) -> Optional[str]:
         """
@@ -509,6 +515,14 @@ def record_llm_call(*args, **kwargs):
 
 def record_tool_call(*args, **kwargs):
     return _default_recorder.record_tool_call(*args, **kwargs)
+
+
+def record_system_event(*args, **kwargs):
+    return _default_recorder.record_system_event(*args, **kwargs)
+
+
+def record_state_snapshot(*args, **kwargs):
+    return _default_recorder.record_state_snapshot(*args, **kwargs)
 
 
 def replay(*args, **kwargs):

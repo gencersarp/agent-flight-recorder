@@ -1,4 +1,9 @@
-export type StepType = "LLM_CALL" | "TOOL_CALL" | "TOOL_RESULT" | "SYSTEM_EVENT";
+export type StepType =
+  | "LLM_CALL"
+  | "TOOL_CALL"
+  | "TOOL_RESULT"
+  | "SYSTEM_EVENT"
+  | "STATE_SNAPSHOT";
 
 export interface StartRunOptions {
   name?: string;
@@ -175,6 +180,22 @@ export class FlightRecorder {
         result: options.result,
       },
       duration: options.duration,
+    });
+  }
+
+  /**
+   * Record a STATE_SNAPSHOT step.
+   * @param name - A name for the state snapshot.
+   * @param state - The state object to record.
+   * @returns The step ID, or null if failed.
+   */
+  async recordStateSnapshot(
+    name: string,
+    state: Record<string, any>
+  ): Promise<string | null> {
+    return this.recordStep({
+      type: "STATE_SNAPSHOT",
+      payload: { name, state },
     });
   }
 
@@ -613,6 +634,13 @@ export async function recordToolCall(
   options: ToolCallOptions
 ): Promise<string | null> {
   return defaultRecorder.recordToolCall(options);
+}
+
+export async function recordStateSnapshot(
+  name: string,
+  state: Record<string, any>
+): Promise<string | null> {
+  return defaultRecorder.recordStateSnapshot(name, state);
 }
 
 export default FlightRecorder;
