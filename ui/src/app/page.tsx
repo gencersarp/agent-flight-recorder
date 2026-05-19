@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Run, PaginatedRuns, fetchRunsPaginated, RunsFilter } from "@/lib/api";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { Run, PaginatedRuns, fetchRunsPaginated, RunsFilter, deleteRun } from "@/lib/api";
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -63,9 +63,10 @@ export default function RunsPage() {
   const [timePreset, setTimePreset] = useState("");
   const [page, setPage] = useState(1);
   const limit = 50;
+  const pollTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const loadRuns = useCallback(async () => {
-    setLoading(true);
+  const loadRuns = useCallback(async (isAutoRefresh = false) => {
+    if (!isAutoRefresh) setLoading(true);
     setError(null);
     try {
       const filters: RunsFilter = { page, limit };
@@ -79,13 +80,37 @@ export default function RunsPage() {
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setLoading(false);
+      if (!isAutoRefresh) setLoading(false);
     }
   }, [page, statusFilter, search, timePreset]);
 
   useEffect(() => {
     loadRuns();
   }, [loadRuns]);
+
+  // Polling for active runs
+  useEffect(() => {
+    const hasActiveRuns = result?.data.some(r => r.status === 'running' || r.status === 'replaying');
+    if (hasActiveRuns) {
+      pollTimer.current = setInterval(() => loadRuns(true), 3000);
+    } else {
+      if (pollTimer.current) clearInterval(pollTimer.current);
+    }
+    return () => {
+      if (pollTimer.current) clearInterval(pollTimer.current);
+    };
+  }, [result, loadRuns]);
+
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to delete this run?")) return;
+    try {
+      await deleteRun(id);
+      loadRuns();
+    } catch (err: any) {
+      alert(`Delete failed: ${err.message}`);
+    }
+  };
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -122,7 +147,15 @@ export default function RunsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold">Agent Runs</h1>
-        <span className="text-sm text-gray-500">{total} total runs</span>
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => loadRuns()}
+            className="text-xs text-indigo-400 hover:text-indigo-300 transition"
+          >
+            Refresh
+          </button>
+          <span className="text-sm text-gray-500">{total} total runs</span>
+        </div>
       </div>
 
       <div className="flex gap-3 mb-4 flex-wrap">
@@ -181,7 +214,7 @@ export default function RunsPage() {
               {runs.map((run) => (
                 <tr
                   key={run.id}
-                  className="hover:bg-gray-900/30 cursor-pointer transition"
+                  className="hover:bg-gray-900/30 cursor-pointer transition group"
                   onClick={() =>
                     (window.location.href = `/runs/${run.id}`)
                   }
@@ -207,15 +240,26 @@ export default function RunsPage() {
                     {formatDuration(run.created_at, run.updated_at)}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-1 flex-wrap">
-                      {run.tags?.map((t) => (
-                        <span
-                          key={t}
-                          className="text-xs px-1.5 py-0.5 bg-gray-800 rounded text-gray-400"
-                        >
-                          {t}
-                        </span>
-                      ))}
+                    <div className="flex items-center justify-between">
+                      <div className="flex gap-1 flex-wrap">
+                        {run.tags?.map((t) => (
+                          <span
+                            key={t}
+                            className="text-xs px-1.5 py-0.5 bg-gray-800 rounded text-gray-400"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                      <button
+                        onClick={(e) => handleDelete(e, run.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-500 hover:text-red-400 transition-all"
+                        title="Delete run"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
                     </div>
                   </td>
                 </tr>

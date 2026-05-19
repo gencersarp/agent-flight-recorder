@@ -133,3 +133,11 @@ export async function fetchHealth(): Promise<HealthCheck> {
   if (!res.ok) throw new Error("Failed to fetch health");
   return res.json();
 }
+
+export async function deleteRun(id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/runs/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Failed to delete run");
+  return res.json();
+}

@@ -1,43 +1,33 @@
 # Progress Tracker
 
-## Project Polishing & Usability Enhancements (2026-05-19)
+## Global Search, Export & Lifecycle Management (2026-05-19)
 
 ### All Changes
 
-1. **Marketability & Documentation** (`README.md`):
-   - Completely redesigned the README with a bold value proposition, emoji-rich feature list, and professional badges.
-   - Added placeholders for media and improved architecture diagrams.
-   - Simplified "Quick Start" to focus on the new `npm run dev` flow.
+1. **Markdown Export** (`ui/src/lib/export.ts`, `ui/src/app/runs/[id]/page.tsx`):
+   - Created a professional Markdown generator that transforms a full agent run timeline into a shareable report.
+   - Added an "Export MD" button to the run detail page.
 
-2. **Onboarding Experience** (`examples/seed_demo.py`):
-   - Created a comprehensive demo script that generates a realistic multi-step agent run (Search -> Analysis -> Chart -> Summary).
-   - Allows new users to see the full power of the UI (including image handling and branching) immediately.
+2. **Run Deletion & Cleanup** (`backend/src/index.ts`, `ui/src/lib/api.ts`, `ui/src/app/page.tsx`, `ui/src/app/runs/[id]/page.tsx`):
+   - Implemented `DELETE /api/runs/:id` to allow users to prune their local database.
+   - Added delete buttons with confirmation dialogs to both the main runs list and the detail page.
 
-3. **Developer Experience (DX)** (`package.json`):
-   - Integrated `concurrently` and `wait-on` in the root project.
-   - `npm run dev` now starts both backend and UI with labeled, color-coded logs.
-   - UI now waits for backend health before attempting to boot, preventing race conditions.
+3. **Real-time UI Polling** (`ui/src/app/page.tsx`, `ui/src/app/runs/[id]/page.tsx`):
+   - Added intelligent polling logic that automatically refreshes the UI every 2-3 seconds if any run is currently "running" or "replaying".
+   - Added a manual "Refresh" button for quick updates.
 
-4. **UI Polishing** (`ui/src/app/runs/[id]/page.tsx`, `ui/src/app/diff/page.tsx`):
-   - **Copy to Clipboard**: Added buttons to all code blocks and text panels for quick access to prompt/response data.
-   - **Relative Timing**: Each step now shows its offset from the run start (e.g., `+2.45s`), making it easier to analyze agent latency.
-   - **Search in Diffs**: Added a search filter to the comparison page, allowing users to find specific steps within large diff results.
-   - **Branch Discovery**: Improved the visibility of the "Branch" button to make the unique debugging feature more obvious.
-
-5. **SDK Ergonomics** (`sdks/python/`, `sdks/typescript/`):
-   - Added `FlightRecorder.auto_openai()` and `auto_anthropic()` methods.
-   - These methods handle recorder instantiation and client wrapping in a single line, reducing integration friction.
+4. **Global Step Search** (`backend/src/index.ts`):
+   - Added a high-performance `GET /api/steps/search` endpoint.
+   - Developers can now search for specific strings (like specific errors or prompt fragments) across the entire history of all agent runs.
 
 ### Files Modified
-- `README.md` — Complete rewrite for marketability.
-- `package.json` — Added concurrently/wait-on and improved scripts.
-- `examples/seed_demo.py` — **NEW** file for demo seeding.
-- `ui/src/app/runs/[id]/page.tsx` — Added CopyButton and relative time.
-- `ui/src/app/diff/page.tsx` — Added search filter and view mode styling.
-- `sdks/python/agent_flight_recorder/__init__.py` — Added auto methods.
-- `sdks/typescript/src/index.ts` — Added auto methods.
+- `backend/src/index.ts` — Added DELETE and Global Search endpoints.
+- `ui/src/lib/api.ts` — Added `deleteRun`.
+- `ui/src/lib/export.ts` — **NEW** file for Markdown generation.
+- `ui/src/app/page.tsx` — Added deletion UI and list polling.
+- `ui/src/app/runs/[id]/page.tsx` — Added Export, Delete, and detail polling.
 
-## Step Branching & Custom Diff Handlers (2026-05-19)
+## Project Polishing & Usability Enhancements (2026-05-19)
 ...
 
 ## Previous Sessions

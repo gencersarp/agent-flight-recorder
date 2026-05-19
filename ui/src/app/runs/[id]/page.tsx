@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Run, Step, fetchRun, fetchSteps, replayRun } from "@/lib/api";
+import { Run, Step, fetchRun, fetchSteps, replayRun, deleteRun } from "@/lib/api";
+import { exportRunToMarkdown, downloadFile } from "@/lib/export";
 
 function JsonViewer({ data }: { data: any }) {
   return (
@@ -231,16 +232,58 @@ export default function RunDetailPage() {
   const [replayMode, setReplayMode] = useState<"stub" | "live">("stub");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<string>("ALL");
+  const pollTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const loadData = async (isAutoRefresh = false) => {
+    if (!isAutoRefresh) setLoading(true);
+    try {
+      const [r, s] = await Promise.all([fetchRun(id), fetchSteps(id)]);
+      setRun(r);
+      setSteps(s);
+      
+      // Stop polling if run is finished
+      if (r.status !== 'running' && r.status !== 'replaying' && pollTimer.current) {
+        clearInterval(pollTimer.current);
+        pollTimer.current = null;
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      if (!isAutoRefresh) setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    Promise.all([fetchRun(id), fetchSteps(id)])
-      .then(([r, s]) => {
-        setRun(r);
-        setSteps(s);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    loadData();
+    return () => {
+      if (pollTimer.current) clearInterval(pollTimer.current);
+    };
   }, [id]);
+
+  useEffect(() => {
+    if (run && (run.status === 'running' || run.status === 'replaying')) {
+      if (!pollTimer.current) {
+        pollTimer.current = setInterval(() => loadData(true), 2000);
+      }
+    }
+  }, [run]);
+
+  async function handleDelete() {
+    if (!confirm("Are you sure you want to delete this run?")) return;
+    try {
+      await deleteRun(id);
+      router.push("/");
+    } catch (e: any) {
+      alert(`Delete failed: ${e.message}`);
+    }
+  }
+
+  function handleExport() {
+    if (!run) return;
+    const md = exportRunToMarkdown(run, steps);
+    const fileName = `afr-run-${run.name.replace(/\s+/g, "-").toLowerCase()}-${id.slice(0, 8)}.md`;
+    downloadFile(md, fileName, "text/markdown");
+  }
 
   async function handleReplay() {
     setReplaying(true);
@@ -325,6 +368,21 @@ export default function RunDetailPage() {
             <p className="text-xs text-gray-500 font-mono mt-1">{run.id}</p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleExport}
+              className="px-3 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition border border-gray-700"
+            >
+              Export MD
+            </button>
+            <button
+              onClick={handleDelete}
+              className="p-1.5 text-gray-500 hover:text-red-400 transition"
+              title="Delete run"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
             <StatusBadge status={run.status} />
           </div>
         </div>

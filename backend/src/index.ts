@@ -644,6 +644,63 @@ app.post('/api/runs/:id/replay', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// DELETE /api/runs/:id
+// ---------------------------------------------------------------------------
+app.delete('/api/runs/:id', (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const run = findRunOrNull(id);
+    if (!run) {
+      res.status(404).json({ error: 'Run not found' });
+      return;
+    }
+
+    const deleteTransaction = db.transaction(() => {
+      db.prepare('DELETE FROM steps WHERE run_id = ?').run(id);
+      db.prepare('DELETE FROM runs WHERE id = ?').run(id);
+    });
+
+    deleteTransaction();
+
+    res.json({ success: true, message: `Run ${id} and its steps deleted.` });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to delete run', message: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/steps/search
+// ---------------------------------------------------------------------------
+app.get('/api/steps/search', (req: Request, res: Response) => {
+  try {
+    const query = req.query.q as string;
+    if (!query) {
+      res.status(400).json({ error: 'Search query "q" is required' });
+      return;
+    }
+
+    const limit = Math.min(100, parseInt(req.query.limit as string) || 50);
+    const searchTerm = `%${query}%`;
+
+    const steps = db.prepare(`
+      SELECT s.*, r.name as run_name 
+      FROM steps s
+      JOIN runs r ON s.run_id = r.id
+      WHERE s.payload LIKE ?
+      ORDER BY s.timestamp DESC
+      LIMIT ?
+    `).all(searchTerm, limit);
+
+    res.json(steps.map((s: any) => ({
+      ...parseStep(s),
+      run_name: s.run_name
+    })));
+  } catch (err: any) {
+    res.status(500).json({ error: 'Global search failed', message: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------
 const server = app.listen(port, () => {
