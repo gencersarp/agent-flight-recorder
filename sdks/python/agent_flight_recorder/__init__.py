@@ -255,6 +255,26 @@ class FlightRecorder:
             "on_tool_call": on_tool_call,
         }
 
+    @classmethod
+    def auto_openai(cls, client=None, api_url: str = None):
+        """
+        Convenience method to create a recorder and wrap an OpenAI client in one go.
+        """
+        rec = cls(api_url=api_url)
+        if client:
+            wrap_openai(client, rec)
+        return rec
+
+    @classmethod
+    def auto_anthropic(cls, client=None, api_url: str = None):
+        """
+        Convenience method to create a recorder and wrap an Anthropic client in one go.
+        """
+        rec = cls(api_url=api_url)
+        if client:
+            wrap_anthropic(client, rec)
+        return rec
+
 
 # ---------------------------------------------------------------------------
 # OpenAI wrapper (item 15)

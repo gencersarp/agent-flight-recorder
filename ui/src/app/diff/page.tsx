@@ -336,6 +336,7 @@ function DiffContent() {
   const [loading, setLoading] = useState(false);
   const [compared, setCompared] = useState(false);
   const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     fetchRuns().then(setRuns).catch(() => {});
@@ -364,25 +365,38 @@ function DiffContent() {
   }
 
   const summary = compareResult?.summary;
-  const stepDiffs = compareResult?.step_diffs ?? [];
+  const stepDiffs = (compareResult?.step_diffs ?? []).filter(d => {
+    if (!searchQuery) return true;
+    const content = JSON.stringify({ left: d.left?.payload, right: d.right?.payload }).toLowerCase();
+    return content.includes(searchQuery.toLowerCase());
+  });
 
   return (
     <div className="pb-20">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold">Compare Runs</h1>
-        <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-1">
-          <button
-            onClick={() => setViewMode("unified")}
-            className={`px-3 py-1 text-xs rounded ${viewMode === 'unified' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-          >
-            Unified
-          </button>
-          <button
-            onClick={() => setViewMode("split")}
-            className={`px-3 py-1 text-xs rounded ${viewMode === 'split' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-          >
-            Side-by-side
-          </button>
+        <div className="flex items-center gap-4">
+          <input
+            type="text"
+            placeholder="Search in diffs..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-gray-700 w-48"
+          />
+          <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode("unified")}
+              className={`px-3 py-1 text-xs rounded ${viewMode === 'unified' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+            >
+              Unified
+            </button>
+            <button
+              onClick={() => setViewMode("split")}
+              className={`px-3 py-1 text-xs rounded ${viewMode === 'split' ? 'bg-gray-800 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+            >
+              Side-by-side
+            </button>
+          </div>
         </div>
       </div>
 

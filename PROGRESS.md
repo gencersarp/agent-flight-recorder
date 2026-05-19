@@ -1,31 +1,44 @@
 # Progress Tracker
 
-## Step Branching & Custom Diff Handlers (2026-05-19)
+## Project Polishing & Usability Enhancements (2026-05-19)
 
 ### All Changes
 
-1. **Step Branching** (`backend/src/index.ts`, `ui/src/app/runs/[id]/page.tsx`, `ui/src/lib/api.ts`):
-   - Enhanced `/api/runs/:id/replay` to accept `until_step_id`, allowing runs to be truncated at any point.
-   - Added a "Branch" button to each step in the timeline. Clicking it triggers a live replay up to that step.
-   - Branched runs are marked in metadata with `branched_from_step_id`.
+1. **Marketability & Documentation** (`README.md`):
+   - Completely redesigned the README with a bold value proposition, emoji-rich feature list, and professional badges.
+   - Added placeholders for media and improved architecture diagrams.
+   - Simplified "Quick Start" to focus on the new `npm run dev` flow.
 
-2. **Custom Diff Handlers** (`ui/src/lib/diff-handlers.tsx`, `ui/src/app/diff/page.tsx`):
-   - Created a registry for specialized diff rendering logic.
-   - **Image Diff**: Automatically detects image payloads (URL or base64) and shows them side-by-side.
-   - **Noise Filter**: A JSON handler that excludes common volatile keys (e.g., `timestamp`, `id`, `created_at`) to reduce diff noise.
-   - Refactored `StepDiff` to dynamically pick the best handler or fallback to text diff.
+2. **Onboarding Experience** (`examples/seed_demo.py`):
+   - Created a comprehensive demo script that generates a realistic multi-step agent run (Search -> Analysis -> Chart -> Summary).
+   - Allows new users to see the full power of the UI (including image handling and branching) immediately.
 
-3. **Split-View Diff** (`ui/src/app/diff/page.tsx`):
-   - Added a "Side-by-side" view mode in the diff page.
-   - Implemented an alignment algorithm for split views based on the Myers diff results.
-   - Added a UI toggle to switch between "Unified" and "Side-by-side" views.
+3. **Developer Experience (DX)** (`package.json`):
+   - Integrated `concurrently` and `wait-on` in the root project.
+   - `npm run dev` now starts both backend and UI with labeled, color-coded logs.
+   - UI now waits for backend health before attempting to boot, preventing race conditions.
+
+4. **UI Polishing** (`ui/src/app/runs/[id]/page.tsx`, `ui/src/app/diff/page.tsx`):
+   - **Copy to Clipboard**: Added buttons to all code blocks and text panels for quick access to prompt/response data.
+   - **Relative Timing**: Each step now shows its offset from the run start (e.g., `+2.45s`), making it easier to analyze agent latency.
+   - **Search in Diffs**: Added a search filter to the comparison page, allowing users to find specific steps within large diff results.
+   - **Branch Discovery**: Improved the visibility of the "Branch" button to make the unique debugging feature more obvious.
+
+5. **SDK Ergonomics** (`sdks/python/`, `sdks/typescript/`):
+   - Added `FlightRecorder.auto_openai()` and `auto_anthropic()` methods.
+   - These methods handle recorder instantiation and client wrapping in a single line, reducing integration friction.
 
 ### Files Modified
-- `backend/src/index.ts` — Enhanced replay endpoint for branching.
-- `ui/src/lib/api.ts` — Updated `replayRun` API and added `STATE_SNAPSHOT` to `Step` type.
-- `ui/src/app/runs/[id]/page.tsx` — Added "Branch" button and logic.
-- `ui/src/app/diff/page.tsx` — Added split view, handlers, and Suspense wrapper.
-- `ui/src/lib/diff-handlers.tsx` — **NEW** file for custom diff logic.
+- `README.md` — Complete rewrite for marketability.
+- `package.json` — Added concurrently/wait-on and improved scripts.
+- `examples/seed_demo.py` — **NEW** file for demo seeding.
+- `ui/src/app/runs/[id]/page.tsx` — Added CopyButton and relative time.
+- `ui/src/app/diff/page.tsx` — Added search filter and view mode styling.
+- `sdks/python/agent_flight_recorder/__init__.py` — Added auto methods.
+- `sdks/typescript/src/index.ts` — Added auto methods.
+
+## Step Branching & Custom Diff Handlers (2026-05-19)
+...
 
 ## Previous Sessions
 ... (rest of previous sessions)

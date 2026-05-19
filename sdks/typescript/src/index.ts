@@ -358,6 +358,24 @@ export class FlightRecorder {
       },
     };
   }
+
+  /**
+   * Convenience method to create a recorder and wrap an OpenAI client in one go.
+   */
+  static autoOpenAI(client: any, apiUrl?: string): FlightRecorder {
+    const rec = new FlightRecorder(apiUrl);
+    wrapOpenAI(client, rec);
+    return rec;
+  }
+
+  /**
+   * Convenience method to create a recorder and wrap an Anthropic client in one go.
+   */
+  static autoAnthropic(client: any, apiUrl?: string): FlightRecorder {
+    const rec = new FlightRecorder(apiUrl);
+    wrapAnthropic(client, rec);
+    return rec;
+  }
 }
 
 // ---------------------------------------------------------------------------

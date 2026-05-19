@@ -56,10 +56,37 @@ function StepIcon({ type }: { type: string }) {
   );
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        handleCopy();
+      }}
+      className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
+    >
+      {copied ? "Copied!" : "Copy"}
+    </button>
+  );
+}
+
 function LlmStepContent({ payload }: { payload: any }) {
+  const promptStr = typeof payload.prompt === "string" ? payload.prompt : JSON.stringify(payload.prompt, null, 2);
+  const responseStr = typeof payload.response === "string" ? payload.response : JSON.stringify(payload.response, null, 2);
+
   return (
     <div className="space-y-3">
-      <Collapsible title="Prompt" defaultOpen>
+      <div className="flex items-center justify-between">
+        <Collapsible title="Prompt" defaultOpen />
+        <CopyButton text={promptStr} />
+      </div>
+      <div className="mt-1">
         {typeof payload.prompt === "string" ? (
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 text-sm text-gray-300 whitespace-pre-wrap">
             {payload.prompt}
@@ -67,8 +94,13 @@ function LlmStepContent({ payload }: { payload: any }) {
         ) : (
           <JsonViewer data={payload.prompt} />
         )}
-      </Collapsible>
-      <Collapsible title="Response" defaultOpen>
+      </div>
+      
+      <div className="flex items-center justify-between mt-4">
+        <Collapsible title="Response" defaultOpen />
+        <CopyButton text={responseStr} />
+      </div>
+      <div className="mt-1">
         {typeof payload.response === "string" ? (
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 text-sm text-gray-300 whitespace-pre-wrap">
             {payload.response}
@@ -76,7 +108,8 @@ function LlmStepContent({ payload }: { payload: any }) {
         ) : (
           <JsonViewer data={payload.response} />
         )}
-      </Collapsible>
+      </div>
+      
       {payload.model && (
         <div className="text-xs text-gray-500">Model: {payload.model}</div>
       )}
@@ -92,17 +125,22 @@ function ToolStepContent({ payload }: { payload: any }) {
           {payload.name}
         </div>
       )}
-      <Collapsible title="Arguments" defaultOpen>
-        <JsonViewer data={payload.args} />
-      </Collapsible>
-      <Collapsible title="Result" defaultOpen>
-        <JsonViewer data={payload.result} />
-      </Collapsible>
+      <div className="flex items-center justify-between">
+        <Collapsible title="Arguments" defaultOpen />
+        <CopyButton text={JSON.stringify(payload.args, null, 2)} />
+      </div>
+      <JsonViewer data={payload.args} />
+
+      <div className="flex items-center justify-between">
+        <Collapsible title="Result" defaultOpen />
+        <CopyButton text={JSON.stringify(payload.result, null, 2)} />
+      </div>
+      <JsonViewer data={payload.result} />
     </div>
   );
 }
 
-function StepCard({ step, onBranch }: { step: Step; onBranch: (stepId: string) => void }) {
+function StepCard({ step, onBranch, startTime }: { step: Step; onBranch: (stepId: string) => void, startTime: number }) {
   const typeLabels: Record<string, string> = {
     LLM_CALL: "LLM Call",
     TOOL_CALL: "Tool Call",
@@ -110,6 +148,8 @@ function StepCard({ step, onBranch }: { step: Step; onBranch: (stepId: string) =
     SYSTEM_EVENT: "System Event",
     STATE_SNAPSHOT: "State Snapshot",
   };
+
+  const relativeTime = (new Date(step.timestamp).getTime() - startTime) / 1000;
 
   return (
     <div className="flex gap-4 group">
@@ -124,9 +164,12 @@ function StepCard({ step, onBranch }: { step: Step; onBranch: (stepId: string) =
               <span className="text-sm font-medium text-gray-200">
                 {typeLabels[step.type] || step.type}
               </span>
+              <span className="text-[10px] text-gray-600">
+                +{relativeTime.toFixed(2)}s
+              </span>
               <button
                 onClick={() => onBranch(step.id)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity px-2 py-0.5 text-[10px] bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded hover:bg-indigo-600/40"
+                className="opacity-20 group-hover:opacity-100 transition-opacity px-2 py-0.5 text-[10px] bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded hover:bg-indigo-600/40"
                 title="Start a new run branching from this step"
               >
                 Branch
@@ -145,7 +188,12 @@ function StepCard({ step, onBranch }: { step: Step; onBranch: (stepId: string) =
               <ToolStepContent payload={step.payload} />
             )}
           {step.payload && (step.type === "SYSTEM_EVENT" || step.type === "STATE_SNAPSHOT") && (
-            <JsonViewer data={step.payload} />
+            <div className="space-y-2">
+              <div className="flex justify-end">
+                <CopyButton text={JSON.stringify(step.payload, null, 2)} />
+              </div>
+              <JsonViewer data={step.payload} />
+            </div>
           )}
         </div>
       </div>
@@ -408,7 +456,12 @@ export default function RunDetailPage() {
       ) : (
         <div>
           {filteredSteps.map((step) => (
-            <StepCard key={step.id} step={step} onBranch={handleBranch} />
+            <StepCard
+              key={step.id}
+              step={step}
+              onBranch={handleBranch}
+              startTime={new Date(run.created_at).getTime()}
+            />
           ))}
         </div>
       )}
